@@ -5,11 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Battle of the Shapes</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Inter', sans-serif; user-select: none; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
         
+        /* Modern UI Styles */
         .glass-panel { 
             background: rgba(15, 15, 20, 0.65); 
             backdrop-filter: blur(16px); 
@@ -17,7 +19,7 @@
             border: 1px solid rgba(255, 255, 255, 0.08); 
         }
         
-        .char-card { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); opacity: 0.6; filter: grayscale(50%); }
+        .char-card { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); opacity: 0.6; filter: grayscale(50%); position: relative; overflow: hidden; }
         .char-card:hover { opacity: 0.8; transform: translateY(-2px); }
         .char-card.selected { 
             opacity: 1; filter: grayscale(0%);
@@ -27,12 +29,20 @@
             transform: translateY(-4px); 
         }
         
-        .skin-btn { transition: all 0.2s ease; opacity: 0.5; }
+        .locked-overlay { position: absolute; inset: 0; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 10; transition: all 0.2s; backdrop-filter: blur(2px); }
+        .char-card:hover .locked-overlay { background: rgba(0,0,0,0.5); }
+        .locked-item { pointer-events: auto; opacity: 0.5; }
+        
+        @keyframes shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
+        .shake { animation: shake 0.3s ease-in-out; }
+
+        .skin-btn { transition: all 0.2s ease; opacity: 0.5; position: relative; }
         .skin-btn:hover { opacity: 0.8; }
         .skin-btn.selected { 
             opacity: 1; background-color: #e0f2fe; color: #0f172a; 
             border-color: #e0f2fe; font-weight: bold; box-shadow: 0 0 15px rgba(224, 242, 254, 0.5); 
         }
+        .skin-btn.locked-item { opacity: 0.4; border-style: dashed; }
         
         .upgrade-card { 
             transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
@@ -46,13 +56,14 @@
             box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); 
         }
 
+        .forbidden-card { border-color: #ef4444 !important; background: linear-gradient(180deg, rgba(153, 27, 27, 0.2) 0%, rgba(20, 20, 25, 0.9) 100%) !important; box-shadow: inset 0 0 20px rgba(239, 68, 68, 0.1); }
+
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         
         .radial-bg { background: radial-gradient(circle at 50% 0%, rgba(30,30,40,1) 0%, rgba(5,5,5,1) 70%); }
-        .text-glow { text-shadow: 0 0 20px currentColor; }
     </style>
 </head>
 <body class="w-screen h-screen relative flex items-center justify-center text-slate-100 overflow-hidden">
@@ -60,95 +71,162 @@
     <!-- Game Canvas -->
     <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
 
+    <!-- Cloud Auth Modal -->
+    <div id="modal-auth" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
+        <div class="glass-panel w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10 p-8">
+            <div class="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
+                <h2 class="text-2xl font-black tracking-tight text-white">SYSTEM.AUTH</h2>
+                <button id="btn-close-auth" class="text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
+            </div>
+            
+            <p class="text-sm text-slate-400 mb-6 font-mono">Connect to the mainframe to sync your progress across devices and secure your data.</p>
+            
+            <div class="space-y-4 font-mono">
+                <div>
+                    <label class="block text-[10px] text-sky-400 tracking-widest uppercase mb-1">Email Designation</label>
+                    <input type="email" id="auth-email" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-sky-500 transition-colors placeholder:text-slate-700" placeholder="pilot@sector.7">
+                </div>
+                <div>
+                    <label class="block text-[10px] text-sky-400 tracking-widest uppercase mb-1">Access Cipher</label>
+                    <input type="password" id="auth-pass" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-sky-500 transition-colors" placeholder="••••••••">
+                </div>
+                
+                <div id="auth-msg" class="text-xs font-bold text-rose-400 h-4 mt-2"></div>
+                
+                <div class="flex gap-3 pt-4">
+                    <button id="btn-login" class="flex-1 py-3 bg-white text-black font-bold tracking-widest text-sm rounded-lg hover:bg-sky-100 transition-all active:scale-[0.98]">AUTHENTICATE</button>
+                    <button id="btn-register" class="flex-1 py-3 bg-white/5 border border-white/10 text-white font-bold tracking-widest text-sm rounded-lg hover:bg-white/10 transition-all active:scale-[0.98]">REGISTER NEW</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Update Log Modal -->
     <div id="modal-update-log" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
         <div class="glass-panel w-full max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10">
             <div class="p-6 border-b border-white/5 flex justify-between items-center">
-                <h2 class="text-2xl font-black tracking-tight text-white">PATCH NOTES</h2>
+                <h2 class="text-2xl font-black tracking-tight text-white">SYSTEM.LOG</h2>
                 <button id="btn-close-log" class="text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
             </div>
             <div class="p-8 overflow-y-auto font-mono text-sm text-slate-300 space-y-8">
                 <div>
-                    <h3 class="text-sky-400 font-bold text-lg mb-3 flex items-center gap-3">
-                        <span class="bg-sky-500/20 px-2 py-1 rounded text-sky-300 text-xs tracking-widest font-sans uppercase">v2.1.0</span> 
-                        Trapper Rework & New Anomalies
+                    <h3 class="text-emerald-400 font-bold text-lg mb-3 flex items-center gap-3">
+                        <span class="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 text-xs tracking-widest font-sans uppercase">v4.0.0</span> 
+                        Supabase Cloud Sync
                     </h3>
                     <ul class="list-disc pl-5 space-y-2 text-slate-400">
-                        <li><strong class="text-white">Trapper Overhaul:</strong> Trapper now calls down devastating orbital lasers on nearby enemies instead of dropping mines.</li>
-                        <li><strong class="text-white">Strict Range Limits:</strong> All summons and special abilities strictly obey their class Attack Range. No more global sniping.</li>
-                        <li><strong class="text-white">Kill-Based Anomalies:</strong> World events now trigger exactly every 300 kills.</li>
-                        <li><strong class="text-white">Time Distortion:</strong> New anomaly! The matrix slows down for enemies while you move and shoot at normal speed.</li>
-                        <li><strong class="text-white">Blood Moon:</strong> New anomaly! Enemies move 50% faster and spawn at 5x the normal rate. Pure chaos.</li>
+                        <li><strong class="text-white">Cloud Authentication:</strong> Create an account to permanently backup your save data to the cloud.</li>
+                        <li><strong class="text-white">Cross-Device Progression:</strong> Your shards, unlocks, and statistics now follow you wherever you play.</li>
+                        <li><strong class="text-white">Intelligent Merging:</strong> If you play offline, your progress will automatically sync to the cloud the next time you connect.</li>
                     </ul>
                 </div>
             </div>
         </div>
     </div>
 
+    <!-- Main Menu -->
     <div id="screen-menu" class="absolute inset-0 z-10 flex flex-col radial-bg pointer-events-auto">
-        <div class="w-full flex-1 flex flex-col md:flex-row max-w-7xl mx-auto h-full p-6 md:p-12 gap-12">
-            
+        
+        <!-- Top Nav Bar (Auth & Shards) -->
+        <div class="absolute top-0 left-0 w-full p-6 flex justify-between items-start z-20">
+            <!-- Auth Status Panel -->
+            <div id="auth-status-panel" class="glass-panel px-4 py-2 rounded-lg border-white/10 shadow-lg flex items-center gap-3">
+                <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse" id="auth-dot"></div>
+                <div id="auth-status" class="font-mono text-xs tracking-widest">
+                    <button id="btn-open-auth" class="text-slate-300 hover:text-white transition-colors font-bold uppercase">CONNECT TO CLOUD</button>
+                </div>
+            </div>
+
+            <!-- Currency Display -->
+            <div class="glass-panel px-6 py-3 rounded-xl border-sky-500/30 shadow-[0_0_20px_rgba(56,189,248,0.1)] flex items-center gap-3">
+                <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
+                <div class="flex flex-col">
+                    <span class="text-[10px] font-mono text-sky-400/70 tracking-widest uppercase leading-none">Data Shards</span>
+                    <span class="font-mono font-bold text-lg leading-none" id="menu-shards-display">0</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="w-full flex-1 flex flex-col md:flex-row max-w-7xl mx-auto h-full p-6 md:p-12 gap-12 pt-28 md:pt-20">
+            <!-- Left Panel: Title -->
             <div class="w-full md:w-1/3 flex flex-col justify-center relative">
-                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs font-mono text-sky-400 w-max mb-6">SYSTEM v2.1.0 ONLINE</div>
+                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs font-mono text-sky-400 w-max mb-6">SYSTEM v4.0.0 ONLINE</div>
                 <h1 class="text-5xl md:text-7xl font-black text-white mb-4 tracking-tighter leading-none">
                     BATTLE<br>OF THE<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-500">SHAPES</span>
                 </h1>
                 <p class="text-slate-400 font-medium text-sm mb-12 leading-relaxed max-w-sm">Survive the geometric anomaly. Adapt your build. Slay the bosses. Never stop moving.</p>
+                
                 <button id="btn-show-log" class="text-left w-max px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-300 font-mono text-xs hover:bg-white/10 transition-colors flex items-center gap-3">
                     View Patch Notes &rarr;
                 </button>
             </div>
 
-            <div class="w-full md:w-2/3 flex flex-col justify-center overflow-y-auto pb-10">
-                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">1. Select Class</p>
+            <!-- Right Panel: Selection -->
+            <div class="w-full md:w-2/3 flex flex-col justify-center overflow-y-auto pb-10 custom-scrollbar pr-4">
                 
-                <div class="grid grid-cols-3 gap-3 mb-10 shrink-0">
-                    <div class="char-card selected glass-panel rounded-xl p-4 cursor-pointer" data-char="ronin">
+                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">1. Draft Class</p>
+                
+                <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-10 shrink-0" id="class-grid">
+                    <!-- Unlocked Base Classes -->
+                    <div class="char-card selected glass-panel rounded-xl p-4 cursor-pointer" data-char="ronin" data-cost="0">
                         <h3 class="text-lg font-bold text-rose-400 mb-1">RONIN</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Massive 360° spinning slash.</p>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="lancer">
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="lancer" data-cost="0">
                         <h3 class="text-lg font-bold text-teal-400 mb-1">LANCER</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Rapid piercing forward thrusts.</p>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="paladin">
-                        <h3 class="text-lg font-bold text-yellow-500 mb-1">PALADIN</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Close-range pulsing AoE & Armor.</p>
-                    </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="bruiser">
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="bruiser" data-cost="0">
                         <h3 class="text-lg font-bold text-orange-400 mb-1">BRUISER</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Close-range 3-shot spread.</p>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="ranger">
+                    
+                    <!-- Advanced Classes (Costs 250) -->
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="paladin" data-cost="250">
+                        <h3 class="text-lg font-bold text-yellow-500 mb-1">PALADIN</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Close-range pulsing AoE.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">250</span></div>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="ranger" data-cost="250">
                         <h3 class="text-lg font-bold text-emerald-400 mb-1">MARINE</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Extreme fire-rate auto-rifle.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">250</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="channeler">
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="channeler" data-cost="250">
                         <h3 class="text-lg font-bold text-purple-400 mb-1">CHANNELER</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Continuous auto-locking beam.</p>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Auto-locking laser beam.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">250</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="trapper">
+
+                    <!-- Gimmick Classes (Costs 500) -->
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="trapper" data-cost="500">
                         <h3 class="text-lg font-bold text-lime-400 mb-1">TRAPPER</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Calls down orbital strikes.</p>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Calls orbital laser strikes.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">500</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="architect">
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="architect" data-cost="500">
                         <h3 class="text-lg font-bold text-zinc-300 mb-1">ARCHITECT</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Starts with Drones & Shields.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">500</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="alchemist">
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="alchemist" data-cost="500">
                         <h3 class="text-lg font-bold text-cyan-400 mb-1">ALCHEMIST</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Bouncing multi-status orbs.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">500</span></div>
                     </div>
                 </div>
 
-                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">2. Select Aesthetic</p>
-                <div class="flex flex-wrap gap-2 mb-10 shrink-0">
-                    <button class="skin-btn selected px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="default">Default</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="cyber">Cyber</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="cosmic">Cosmic</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="infernal">Infernal</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="radiant">Radiant</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="abyssal">Abyssal</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="glitch">Glitch</button>
+                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase flex justify-between">
+                    <span>2. Select Aesthetic</span>
+                    <span id="skin-msg" class="text-rose-400 transition-opacity opacity-0">Not enough Shards!</span>
+                </p>
+                <div class="flex flex-wrap gap-2 mb-10 shrink-0" id="skin-grid">
+                    <button class="skin-btn selected px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="default" data-cost="0">Default</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="cyber" data-cost="150"><span>Cyber</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">150</span></button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="wireframe" data-cost="200"><span>Wireframe</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">200</span></button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="blueprint" data-cost="200"><span>Blueprint</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">200</span></button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="cosmic" data-cost="400"><span>Cosmic</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">400</span></button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="abyssal" data-cost="600"><span>Abyssal</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">600</span></button>
                 </div>
 
                 <button id="btn-start" class="w-full py-5 bg-white text-black hover:bg-sky-100 font-bold tracking-widest text-lg rounded-xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] flex justify-center items-center gap-3 active:scale-[0.98]">
@@ -158,8 +236,10 @@
         </div>
     </div>
 
+    <!-- HUD -->
     <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden flex-col justify-between p-6 md:p-10">
         <div class="flex justify-between items-start w-full relative">
+            
             <div id="boss-hp-container" class="absolute top-0 left-1/2 transform -translate-x-1/2 w-full max-w-lg hidden flex-col items-center">
                 <span class="font-mono font-bold text-xs text-red-500 mb-2 tracking-[0.2em]" id="boss-name">ANOMALY</span>
                 <div class="w-full h-2 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-red-900/30">
@@ -186,9 +266,9 @@
                         <div id="hud-shield-fill" class="h-full bg-blue-400 w-0 transition-all duration-300"></div>
                     </div>
                 </div>
-                <div class="text-[10px] font-mono text-slate-500 mt-2 flex items-center gap-3">
-                    <span><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">U</kbd> Upgrades</span>
-                    <span><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">SPACE</kbd> Dash</span>
+                <div class="text-[10px] font-mono text-slate-500 mt-2 flex flex-col items-start gap-1">
+                    <div class="flex items-center gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">U</kbd> Modules</div>
+                    <div class="flex items-center gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">SPACE</kbd> Dash</div>
                 </div>
             </div>
             
@@ -200,6 +280,7 @@
         </div>
     </div>
 
+    <!-- Upgrade Tracker Sidebar -->
     <div id="screen-tracker" class="absolute right-0 top-24 bottom-10 w-72 glass-panel border-r-0 hidden flex-col p-6 rounded-l-2xl z-15 shadow-2xl transform translate-x-full transition-transform duration-500 pointer-events-auto">
         <h2 class="font-mono font-bold text-xs text-sky-400 tracking-widest mb-4 border-b border-white/10 pb-4 flex justify-between items-center">
             ACTIVE MODULES <span class="text-slate-500 text-[10px] font-normal">Press U</span>
@@ -207,6 +288,7 @@
         <div id="tracker-list" class="flex-1 overflow-y-auto pr-2 space-y-3 font-mono text-xs custom-scrollbar text-slate-300"></div>
     </div>
 
+    <!-- Level Up Screen -->
     <div id="screen-levelup" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-lg hidden pointer-events-auto">
         <div class="text-center mb-12">
             <h2 class="text-4xl font-black text-white tracking-tight mb-2">SYSTEM UPGRADE</h2>
@@ -215,31 +297,298 @@
         <div id="upgrade-container" class="flex flex-col md:flex-row gap-6 w-full max-w-6xl px-8 flex-wrap justify-center"></div>
     </div>
 
-    <div id="screen-gameover" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl hidden pointer-events-auto">
-        <h1 class="text-6xl md:text-8xl font-black text-white mb-8 tracking-tighter">ANOMALY <span class="text-red-500">FATAL</span></h1>
+    <!-- Game Over Screen -->
+    <div id="screen-gameover" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 backdrop-blur-xl hidden pointer-events-auto overflow-y-auto py-10">
+        <h1 class="text-6xl md:text-8xl font-black text-white mb-2 tracking-tighter">ANOMALY <span class="text-red-500">FATAL</span></h1>
+        <p class="text-fuchsia-400 font-mono text-xl tracking-widest mb-8 uppercase" id="go-build-name">The Survivor</p>
         
-        <div class="glass-panel p-8 rounded-2xl mb-12 text-center min-w-[360px] border border-white/10">
-            <p class="text-slate-400 font-mono text-xs tracking-widest mb-2 uppercase">Survival Time</p>
-            <p class="text-5xl font-light text-white mb-8 font-mono" id="go-time">00:00</p>
-            <div class="grid grid-cols-2 gap-6 border-t border-white/10 pt-6">
-                <div>
-                    <p class="text-slate-400 font-mono text-[10px] tracking-widest uppercase mb-1">Entities Cleared</p>
-                    <p class="text-2xl font-bold text-white" id="go-kills">0</p>
+        <div class="glass-panel p-8 rounded-2xl mb-8 w-full max-w-4xl border border-white/10">
+            <!-- Top Stats -->
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 font-mono text-center mb-8 border-b border-white/10 pb-8">
+                <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
+                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Time Alive</p>
+                    <p class="text-3xl font-light text-white" id="go-time">00:00</p>
+                </div>
+                <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
+                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Entities Killed</p>
+                    <p class="text-3xl font-bold text-white" id="go-kills">0</p>
+                </div>
+                <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
+                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Bosses Defeated</p>
+                    <p class="text-3xl font-bold text-sky-400" id="go-bosses">0</p>
                 </div>
                 <div>
-                    <p class="text-slate-400 font-mono text-[10px] tracking-widest uppercase mb-1">Level Reached</p>
-                    <p class="text-2xl font-bold text-sky-400" id="go-level">1</p>
+                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Level Reached</p>
+                    <p class="text-3xl font-bold text-yellow-400" id="go-level">1</p>
+                </div>
+            </div>
+            
+            <!-- In-Depth Analytics -->
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 font-mono text-sm text-slate-300">
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Damage Dealt:</span> <span class="text-white font-bold" id="stat-dmg">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Highest DPS:</span> <span class="text-white font-bold" id="stat-dps">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Damage Taken:</span> <span class="text-rose-400 font-bold" id="stat-taken">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Healing Recv:</span> <span class="text-emerald-400 font-bold" id="stat-heal">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Projectiles Fired:</span> <span class="text-white font-bold" id="stat-proj">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Crits Landed:</span> <span class="text-yellow-400 font-bold" id="stat-crits">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Status Applied:</span> <span class="text-fuchsia-400 font-bold" id="stat-effects">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-2"><span>Synergies Activated:</span> <span class="text-yellow-500 font-bold" id="stat-syns">0</span></div>
+            </div>
+
+            <!-- Meta Rewards -->
+            <div class="mt-8 pt-6 border-t border-white/10 flex justify-center items-center gap-4">
+                <span class="text-slate-400 font-mono text-xs tracking-widest uppercase">Data Harvested:</span>
+                <div class="bg-sky-500/10 border border-sky-500/20 px-6 py-2 rounded-full flex items-center gap-2">
+                    <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
+                    <span class="font-mono font-bold text-sky-400 text-xl" id="go-shards">+0</span>
                 </div>
             </div>
         </div>
         
         <div class="flex flex-col sm:flex-row gap-4">
-            <button id="btn-restart" class="px-12 py-4 bg-white text-black font-bold tracking-widest text-lg rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-3">REBOOT SEQUENCE</button>
-            <button id="btn-mainmenu" class="px-8 py-4 bg-white/5 text-white font-bold tracking-widest text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3">MAIN MENU</button>
+            <button id="btn-restart" class="px-12 py-4 bg-white text-black font-bold tracking-widest text-lg rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-3">
+                REBOOT SEQUENCE
+            </button>
+            <button id="btn-mainmenu" class="px-8 py-4 bg-white/5 text-white font-bold tracking-widest text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3">
+                MAIN MENU
+            </button>
         </div>
     </div>
 
     <script>
+        // --- SUPABASE CLOUD SYNC SYSTEM ---
+        const supabaseUrl = 'https://puegcncwkzeqbsjjgalh.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1ZWdjbmN3a3plcWJzampnYWxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNTcwNjcsImV4cCI6MjA5MzczMzA2N30.F9JMhDhlkPg6e3Jna_HSRtNcDmfbCHLKZsGPh-tjoeM';
+        const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+
+        const CloudSync = {
+            user: null,
+            async init() {
+                // Initialize session on load
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                this.handleSession(session);
+                
+                // Listen for auth changes (login, logout, register)
+                supabaseClient.auth.onAuthStateChange((_event, session) => {
+                    this.handleSession(session);
+                });
+            },
+            
+            async handleSession(session) {
+                this.user = session ? session.user : null;
+                this.updateUI();
+                
+                if (this.user) {
+                    await this.loadFromCloud();
+                }
+            },
+            
+            async login(email, password) {
+                document.getElementById('auth-msg').innerText = "Authenticating...";
+                document.getElementById('auth-msg').className = "text-xs font-bold text-sky-400 h-4 mt-2";
+                
+                const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+                
+                if (error) {
+                    document.getElementById('auth-msg').innerText = error.message;
+                    document.getElementById('auth-msg').className = "text-xs font-bold text-rose-400 h-4 mt-2";
+                } else {
+                    document.getElementById('auth-msg').innerText = "";
+                    document.getElementById('modal-auth').classList.add('hidden');
+                }
+            },
+            
+            async register(email, password) {
+                document.getElementById('auth-msg').innerText = "Registering system...";
+                document.getElementById('auth-msg').className = "text-xs font-bold text-sky-400 h-4 mt-2";
+                
+                const { error } = await supabaseClient.auth.signUp({ email, password });
+                
+                if (error) {
+                    document.getElementById('auth-msg').innerText = error.message;
+                    document.getElementById('auth-msg').className = "text-xs font-bold text-rose-400 h-4 mt-2";
+                } else {
+                    document.getElementById('auth-msg').innerText = "Registration complete. Connecting...";
+                    document.getElementById('auth-msg').className = "text-xs font-bold text-emerald-400 h-4 mt-2";
+                    setTimeout(() => {
+                        document.getElementById('auth-msg').innerText = "";
+                        document.getElementById('modal-auth').classList.add('hidden');
+                    }, 1500);
+                }
+            },
+            
+            async logout() {
+                await supabaseClient.auth.signOut();
+            },
+            
+            async loadFromCloud() {
+                const dot = document.getElementById('auth-dot');
+                dot.classList.remove('bg-rose-500', 'bg-emerald-500'); dot.classList.add('bg-sky-400', 'animate-pulse');
+                
+                // Fetch the save row for this specific user
+                const { data, error } = await supabaseClient.from('saves').select('*').eq('id', this.user.id).single();
+                
+                if (data) {
+                    // Overwrite local progress with cloud progress
+                    SaveSystem.data.shards = data.shards || 0;
+                    SaveSystem.data.unlockedChars = data.unlocked_chars || ['ronin', 'lancer', 'bruiser'];
+                    SaveSystem.data.unlockedSkins = data.unlocked_skins || ['default'];
+                    SaveSystem.data.stats = data.stats || { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 };
+                    
+                    // Persist to localStorage immediately
+                    SaveSystem.saveLocal();
+                    SaveSystem.updateMenuUI();
+                    
+                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-emerald-500');
+                    console.log("Cloud save loaded successfully.");
+                } else if (error && error.code === 'PGRST116') {
+                    // No rows found. This means they are a brand new user.
+                    // We take their CURRENT local save and upload it to the cloud to initialize them.
+                    console.log("No cloud save found. Creating new cloud record from local data...");
+                    await this.saveToCloud();
+                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-emerald-500');
+                } else {
+                    console.error("Failed to load cloud save:", error);
+                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-rose-500');
+                }
+            },
+            
+            async saveToCloud() {
+                if (!this.user) return; // Silent abort if playing offline/guest
+                
+                const dot = document.getElementById('auth-dot');
+                dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-sky-400', 'animate-pulse');
+                
+                const saveData = {
+                    id: this.user.id,
+                    shards: SaveSystem.data.shards,
+                    unlocked_chars: SaveSystem.data.unlockedChars,
+                    unlocked_skins: SaveSystem.data.unlockedSkins,
+                    stats: SaveSystem.data.stats,
+                    updated_at: new Date().toISOString()
+                };
+                
+                // Upsert updates the row if the user ID exists, otherwise creates it
+                const { error } = await supabaseClient.from('saves').upsert(saveData);
+                
+                if (error) {
+                    console.error("Cloud save failed", error);
+                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-rose-500');
+                } else {
+                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-emerald-500');
+                }
+            },
+            
+            updateUI() {
+                const container = document.getElementById('auth-status');
+                const dot = document.getElementById('auth-dot');
+                
+                if(this.user) {
+                    container.innerHTML = `<span class="text-emerald-400">${this.user.email}</span> <button id="btn-logout" class="ml-3 text-[10px] text-slate-500 hover:text-white underline">DISCONNECT</button>`;
+                    dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
+                    
+                    document.getElementById('btn-logout').addEventListener('click', () => this.logout());
+                } else {
+                    container.innerHTML = `<button id="btn-open-auth" class="text-slate-300 hover:text-white transition-colors font-bold uppercase">CONNECT TO CLOUD</button>`;
+                    dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
+                    
+                    document.getElementById('btn-open-auth').addEventListener('click', () => {
+                        document.getElementById('modal-auth').classList.remove('hidden');
+                    });
+                }
+            }
+        };
+
+        // --- SAVE SYSTEM (Local + Triggering Cloud) ---
+        const SaveSystem = {
+            data: {
+                shards: 0,
+                unlockedChars: ['ronin', 'lancer', 'bruiser'],
+                unlockedSkins: ['default'],
+                stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 }
+            },
+            init() {
+                try {
+                    const saved = localStorage.getItem('bots_save_data_v4'); // Incremented version to clear old bad data
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        this.data = { ...this.data, ...parsed, stats: { ...this.data.stats, ...(parsed.stats || {}) } };
+                        // Ensure arrays don't get corrupted
+                        if(!Array.isArray(this.data.unlockedChars)) this.data.unlockedChars = ['ronin', 'lancer', 'bruiser'];
+                        if(!Array.isArray(this.data.unlockedSkins)) this.data.unlockedSkins = ['default'];
+                    }
+                } catch (e) {
+                    console.error("Save data corrupted. Starting fresh.", e);
+                }
+                this.updateMenuUI();
+                
+                // Initialize Cloud Auth after local data loads
+                CloudSync.init();
+            },
+            saveLocal() {
+                try { localStorage.setItem('bots_save_data_v4', JSON.stringify(this.data)); } 
+                catch (e) { console.error("Failed to save data locally.", e); }
+            },
+            save() {
+                // Wrapper to save locally, and trigger a background cloud upload if logged in
+                this.saveLocal();
+                CloudSync.saveToCloud();
+            },
+            awardShards(amount) {
+                if(isNaN(amount) || amount < 0) return; // Safety check
+                this.data.shards += amount;
+                this.save();
+                this.updateMenuUI();
+            },
+            unlockClass(charId, cost) {
+                if (this.data.shards >= cost && !this.data.unlockedChars.includes(charId)) {
+                    this.data.shards -= cost;
+                    this.data.unlockedChars.push(charId);
+                    this.save();
+                    this.updateMenuUI();
+                    return true;
+                }
+                return false;
+            },
+            unlockSkin(skinId, cost) {
+                if (this.data.shards >= cost && !this.data.unlockedSkins.includes(skinId)) {
+                    this.data.shards -= cost;
+                    this.data.unlockedSkins.push(skinId);
+                    this.save();
+                    this.updateMenuUI();
+                    return true;
+                }
+                return false;
+            },
+            updateMenuUI() {
+                document.getElementById('menu-shards-display').innerText = this.data.shards;
+                
+                // Update Classes UI
+                document.querySelectorAll('.char-card').forEach(card => {
+                    const id = card.getAttribute('data-char');
+                    if (this.data.unlockedChars.includes(id)) {
+                        card.classList.remove('locked-item');
+                        const overlay = card.querySelector('.locked-overlay');
+                        if (overlay) overlay.style.display = 'none';
+                    } else {
+                        card.classList.add('locked-item');
+                    }
+                });
+
+                // Update Skins UI
+                document.querySelectorAll('.skin-btn').forEach(btn => {
+                    const id = btn.getAttribute('data-skin');
+                    if (this.data.unlockedSkins.includes(id)) {
+                        btn.classList.remove('locked-item');
+                        const span = btn.querySelector('span.text-sky-300');
+                        if(span) span.remove();
+                    } else {
+                        btn.classList.add('locked-item');
+                    }
+                });
+            }
+        };
+
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { alpha: false }); 
         let vw, vh;
@@ -259,44 +608,39 @@
             charCards: document.querySelectorAll('.char-card'), skinBtns: document.querySelectorAll('.skin-btn'),
             bossContainer: document.getElementById('boss-hp-container'), bossHpFill: document.getElementById('boss-hp-fill'), 
             bossName: document.getElementById('boss-name'),
-            modalUpdateLog: document.getElementById('modal-update-log'), btnShowLog: document.getElementById('btn-show-log'), btnCloseLog: document.getElementById('btn-close-log')
+            modalUpdateLog: document.getElementById('modal-update-log'), btnShowLog: document.getElementById('btn-show-log'), btnCloseLog: document.getElementById('btn-close-log'),
+            modalAuth: document.getElementById('modal-auth'), btnCloseAuth: document.getElementById('btn-close-auth'),
+            btnLogin: document.getElementById('btn-login'), btnRegister: document.getElementById('btn-register'),
+            authEmail: document.getElementById('auth-email'), authPass: document.getElementById('auth-pass')
         };
 
         const CHARACTERS = {
             // Melee
-            'ronin': { color: '#fb7185', stats: { weaponType: 'spin', maxHp: 150, speed: 290, damage: 70, fireRate: 1.5, pickupRange: 100, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 160, pierce: 0, armor: 2, regen: 0.5, critChance: 0.2, critMult: 2.0, lifesteal: 0, dodge: 0.15, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 1.5 } },
-            'lancer': { color: '#2dd4bf', stats: { weaponType: 'normal', maxHp: 130, speed: 260, damage: 35, fireRate: 2.5, pickupRange: 90, projectileSpeed: 1200, projectiles: 1, spread: 0, attackRange: 200, pierce: 999, armor: 2, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 1.5, dashCooldown: 2 } },
-            'paladin': { color: '#eab308', stats: { weaponType: 'pulse', maxHp: 200, speed: 180, damage: 75, fireRate: 1.0, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 220, pierce: 0, armor: 10, regen: 1.0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 4 } },
-            // Projectile
-            'bruiser': { color: '#fb923c', stats: { weaponType: 'normal', maxHp: 180, speed: 200, damage: 25, fireRate: 1.2, pickupRange: 80, projectileSpeed: 600, projectiles: 3, spread: 0.5, attackRange: 400, pierce: 0, armor: 5, regen: 0.5, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } },
+            'ronin': { color: '#fb7185', stats: { weaponType: 'spin', maxHp: 120, speed: 290, damage: 80, fireRate: 1.5, pickupRange: 100, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 160, pierce: 0, armor: 2, regen: 0.5, critChance: 0.2, critMult: 2.0, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 1.5 } },
+            'lancer': { color: '#2dd4bf', stats: { weaponType: 'normal', maxHp: 130, speed: 260, damage: 45, fireRate: 2.5, pickupRange: 90, projectileSpeed: 1200, projectiles: 1, spread: 0, attackRange: 180, pierce: 999, armor: 2, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 1.5, dashCooldown: 2 } },
+            'paladin': { color: '#eab308', stats: { weaponType: 'pulse', maxHp: 200, speed: 180, damage: 60, fireRate: 1.0, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 200, pierce: 0, armor: 10, regen: 1.0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 4 } },
+            // Ranged
+            'bruiser': { color: '#fb923c', stats: { weaponType: 'normal', maxHp: 180, speed: 200, damage: 30, fireRate: 1.2, pickupRange: 80, projectileSpeed: 600, projectiles: 3, spread: 0.5, attackRange: 400, pierce: 0, armor: 5, regen: 0.5, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } },
             'ranger': { color: '#34d399', stats: { weaponType: 'normal', maxHp: 100, speed: 240, damage: 15, fireRate: 6.0, pickupRange: 110, projectileSpeed: 800, projectiles: 1, spread: 0, attackRange: 600, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 0.8, dashCooldown: 2 } },
-            'channeler': { color: '#c084fc', stats: { weaponType: 'beam', maxHp: 90, speed: 230, damage: 150, fireRate: 10, pickupRange: 110, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 450, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 2.5 } },
+            'channeler': { color: '#c084fc', stats: { weaponType: 'beam', maxHp: 90, speed: 220, damage: 150, fireRate: 10, pickupRange: 110, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 500, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 2.5 } },
             // Gimmick
-            'trapper': { color: '#a3e635', stats: { weaponType: 'orbital', maxHp: 100, speed: 280, damage: 80, fireRate: 1.5, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 350, pierce: 0, armor: 0, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 100, scale: 1, dashCooldown: 1.5 } },
-            'architect': { color: '#d4d4d8', stats: { weaponType: 'normal', maxHp: 110, speed: 210, damage: 25, fireRate: 1.5, pickupRange: 150, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 400, pierce: 0, armor: 0, regen: 0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } }, 
+            'trapper': { color: '#a3e635', stats: { weaponType: 'orbital', maxHp: 100, speed: 300, damage: 100, fireRate: 1.5, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 350, pierce: 0, armor: 0, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 100, scale: 1, dashCooldown: 1.5 } },
+            'architect': { color: '#d4d4d8', stats: { weaponType: 'normal', maxHp: 110, speed: 210, damage: 10, fireRate: 1.5, pickupRange: 150, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 400, pierce: 0, armor: 0, regen: 0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } }, 
             'alchemist': { color: '#22d3ee', stats: { weaponType: 'normal', maxHp: 90, speed: 190, damage: 30, fireRate: 1.2, pickupRange: 100, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 800, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 3, homing: 0.02, explodeRadius: 0, scale: 1.2, dashCooldown: 2.5 }, effects: { poison: 1, freeze: 1, burn: 1 } }
         };
 
         const SHAPES = [
-            { type: 'triangle', sides: 3, radius: 12, erratic: false },
-            { type: 'square', sides: 4, radius: 14, erratic: false },
-            { type: 'pentagon', sides: 5, radius: 16, erratic: false },
-            { type: 'hexagon', sides: 6, radius: 13, erratic: false },
-            { type: 'circle', sides: 0, radius: 10, erratic: false },
-            { type: 'diamond', sides: 4, radius: 12, erratic: true }
+            { type: 'triangle', sides: 3, radius: 12, erratic: false }, { type: 'square', sides: 4, radius: 14, erratic: false },
+            { type: 'pentagon', sides: 5, radius: 16, erratic: false }, { type: 'hexagon', sides: 6, radius: 13, erratic: false },
+            { type: 'circle', sides: 0, radius: 10, erratic: false }, { type: 'diamond', sides: 4, radius: 12, erratic: true }
         ];
 
         const TIERS = [
-            { color: '#ef4444', name: "Red", hpM: 1, spdM: 1, dmgM: 1, xp: 1 },
-            { color: '#f97316', name: "Orange", hpM: 1.5, spdM: 1.05, dmgM: 1.2, xp: 2 },
-            { color: '#eab308', name: "Yellow", hpM: 2.5, spdM: 1.1, dmgM: 1.5, xp: 3 },
-            { color: '#22c55e', name: "Green", hpM: 4, spdM: 1.15, dmgM: 2, xp: 4 },
-            { color: '#06b6d4', name: "Cyan", hpM: 6, spdM: 1.2, dmgM: 2.5, xp: 5 },
-            { color: '#3b82f6', name: "Blue", hpM: 9, spdM: 1.25, dmgM: 3, xp: 7 },
-            { color: '#a855f7', name: "Purple", hpM: 13, spdM: 1.3, dmgM: 4, xp: 10 },
-            { color: '#d946ef', name: "Magenta", hpM: 18, spdM: 1.35, dmgM: 5, xp: 14 },
-            { color: '#f59e0b', name: "Gold", hpM: 25, spdM: 1.4, dmgM: 6.5, xp: 20 },
-            { color: '#f8fafc', name: "White", hpM: 35, spdM: 1.5, dmgM: 8, xp: 30 }
+            { color: '#ef4444', name: "Red", hpM: 1, spdM: 1, dmgM: 1, xp: 1 }, { color: '#f97316', name: "Orange", hpM: 1.5, spdM: 1.05, dmgM: 1.2, xp: 2 },
+            { color: '#eab308', name: "Yellow", hpM: 2.5, spdM: 1.1, dmgM: 1.5, xp: 3 }, { color: '#22c55e', name: "Green", hpM: 4, spdM: 1.15, dmgM: 2, xp: 4 },
+            { color: '#06b6d4', name: "Cyan", hpM: 6, spdM: 1.2, dmgM: 2.5, xp: 5 }, { color: '#3b82f6', name: "Blue", hpM: 9, spdM: 1.25, dmgM: 3, xp: 7 },
+            { color: '#a855f7', name: "Purple", hpM: 13, spdM: 1.3, dmgM: 4, xp: 10 }, { color: '#d946ef', name: "Magenta", hpM: 18, spdM: 1.35, dmgM: 5, xp: 14 },
+            { color: '#f59e0b', name: "Gold", hpM: 25, spdM: 1.4, dmgM: 6.5, xp: 20 }, { color: '#f8fafc', name: "White", hpM: 35, spdM: 1.5, dmgM: 8, xp: 30 }
         ];
 
         const ELITE_TYPES = [
@@ -308,16 +652,14 @@
         ];
 
         const BOSS_TEMPLATES = [
-            { name: 'OMEGA POLYGON', sides: 12, color: '#f43f5e', hpMode: 1500, behavior: 'ring' },
-            { name: 'STAR WEAVER', sides: 5, color: '#fcd34d', hpMode: 2000, behavior: 'spiral' },
-            { name: 'VOID ORB', sides: 0, color: '#581c87', hpMode: 2500, behavior: 'pull' },
-            { name: 'SERPENT HEX', sides: 6, color: '#10b981', hpMode: 1800, behavior: 'dash' },
-            { name: 'FRACTAL CROWN', sides: 8, color: '#38bdf8', hpMode: 2200, behavior: 'laser' },
-            { name: 'DECA-CORE', sides: 10, color: '#fb923c', hpMode: 3000, behavior: 'shotgun' }
+            { name: 'THE WHITE SHAPE', sides: 4, color: '#ffffff', hpMode: 1500, behavior: 'teleport' },
+            { name: 'CATHEDRAL-9', sides: 8, color: '#fcd34d', hpMode: 2500, behavior: 'bullet_hell' },
+            { name: 'MOTHER VERTEX', sides: 6, color: '#ec4899', hpMode: 2000, behavior: 'summoner' },
+            { name: 'VOID ORB', sides: 0, color: '#581c87', hpMode: 2800, behavior: 'pull' },
+            { name: 'OMEGA POLYGON', sides: 12, color: '#f43f5e', hpMode: 4000, behavior: 'omega' }
         ];
 
         const UPGRADES_DB = [
-            // Core Offense
             { id: 'proj_up', title: 'Multishot', desc: '+1 Projectile per attack.', color: 'text-sky-300', excludeWeapons: ['beam', 'spin', 'pulse'], apply: p => p.stats.projectiles++ },
             { id: 'pierce_up', title: 'Armor Piercing', desc: 'Projectiles pass through +1 enemy.', color: 'text-indigo-400', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.pierce++ },
             { id: 'bounce_up', title: 'Ricochet', desc: 'Projectiles bounce to nearby enemies.', color: 'text-indigo-300', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.bounce++ },
@@ -326,8 +668,9 @@
             { id: 'dmg_up', title: 'Hollow Points', desc: '+20% Base Damage.', color: 'text-red-400', apply: p => p.stats.damage *= 1.20 },
             { id: 'fire_up', title: 'Overclocked Trigger', desc: '+25% Fire Rate.', color: 'text-amber-400', apply: p => p.stats.fireRate *= 1.25 },
             { id: 'crit_up', title: 'Lethality', desc: '+10% Crit Chance, +30% Crit DMG.', color: 'text-yellow-300', apply: p => { p.stats.critChance = Math.min(1, p.stats.critChance + 0.1); p.stats.critMult += 0.3; } },
+            { id: 'giant_up', title: 'Giant Projectiles', desc: 'Projectiles are massive.', color: 'text-slate-200', apply: p => p.stats.scale *= 1.5 },
+            { id: 'boss_hunt', title: 'Boss Killer', desc: 'Deal more damage to Bosses.', color: 'text-orange-400', apply: p => p.stats.bossDmg = (p.stats.bossDmg || 1) + 0.5 },
 
-            // Elemental / Status
             { id: 'bleed_up', title: 'Serrated Edges', desc: 'Hits apply stacking Bleed over time.', color: 'text-rose-600', apply: p => p.effects.bleed = (p.effects.bleed || 0) + 1 },
             { id: 'poison_up', title: 'Toxic Coating', desc: 'Hits apply stacking Poison (% Max HP damage).', color: 'text-green-500', apply: p => p.effects.poison = (p.effects.poison || 0) + 1 },
             { id: 'freeze_up', title: 'Cryo Rounds', desc: 'Hits temporarily freeze and slow enemies.', color: 'text-cyan-300', apply: p => p.effects.freeze = (p.effects.freeze || 0) + 1 },
@@ -335,33 +678,34 @@
             { id: 'lightning_up', title: 'Tesla Coil', desc: 'Damage arcs to nearby enemies.', color: 'text-yellow-200', apply: p => p.effects.lightning = (p.effects.lightning || 0) + 1 },
             { id: 'singularity', title: 'Singularity', desc: 'Attacks have 10% chance to spawn a Black Hole.', color: 'text-purple-500', apply: p => p.effects.singularity = (p.effects.singularity || 0) + 1 },
 
-            // Synergies & Evolutions (Conditionals)
-            { id: 'bloodplague', title: 'Bloodplague', desc: 'SYNERGY: Bleeding enemies explode on death.', color: 'text-red-700', unique: true, req: ['bleed_up'], apply: p => p.effects.bloodplague = true },
-            { id: 'syn_toxic_blood', title: 'Toxic Hemorrhage', desc: 'SYNERGY: Bleeding enemies take 2x Poison damage.', color: 'text-lime-400', unique: true, req: ['bleed_up', 'poison_up'], apply: p => p.effects.toxicBlood = true },
-            { id: 'syn_frostfire', title: 'Thermal Shock', desc: 'SYNERGY: Frozen enemies take massive Burn damage and shatter.', color: 'text-orange-400', unique: true, req: ['burn_up', 'freeze_up'], apply: p => p.effects.frostfire = true },
-            { id: 'syn_blade_bleed', title: 'Sawblade Singularity', desc: 'SYNERGY: Orbital Blades now cause bleeding on hit.', color: 'text-rose-600', unique: true, req: ['blade_up', 'bleed_up'], apply: p => p.effects.bladeBleed = true },
-
-            // Survival & Mobility
             { id: 'hp_up', title: 'Titanium Plating', desc: '+50 Max HP.', color: 'text-emerald-500', apply: p => { p.stats.maxHp += 50; p.stats.hp += 50; } },
             { id: 'regen_up', title: 'Nanobots', desc: 'Regenerate 3 HP per second.', color: 'text-emerald-300', apply: p => p.stats.regen += 3 },
             { id: 'lifesteal_up', title: 'Vampirism', desc: 'Heal for 2% of damage dealt.', color: 'text-red-500', apply: p => p.stats.lifesteal += 0.02 },
-            { id: 'vamp_aura', title: 'Vampiric Aura', desc: 'Drains health from enemies near you.', color: 'text-rose-800', apply: p => p.stats.vampAura = (p.stats.vampAura || 0) + 1 },
             { id: 'spd_up', title: 'Servo Motors', desc: '+15% Move Speed.', color: 'text-teal-400', apply: p => p.stats.speed *= 1.15 },
-            { id: 'dash_cd', title: 'Lightweight Chassis', desc: 'Dash cooldown reduced by 25%.', color: 'text-slate-300', apply: p => p.stats.dashCooldown *= 0.75 },
-            { id: 'dash_exp', title: 'Blast Dash', desc: 'Dashing leaves an explosion behind.', color: 'text-orange-400', apply: p => p.stats.dashExplosion = (p.stats.dashExplosion || 0) + 1 },
+            { id: 'dash_cd', title: 'Dash Thrusters', desc: 'Dash Cooldown reduced by 25%.', color: 'text-slate-300', apply: p => p.stats.dashCooldown *= 0.75 },
+            { id: 'armor_up', title: 'Heavy Armor', desc: 'Reduces incoming flat damage.', color: 'text-zinc-400', apply: p => p.stats.armor += 2 },
+            { id: 'dodge_up', title: 'Evasion', desc: 'Small chance to ignore damage completely.', color: 'text-slate-300', apply: p => p.stats.dodge += 0.05 },
 
-            // Utility & Summons
-            { id: 'magnet_up', title: 'Magnetic Core', desc: '+50% XP Pickup Range.', color: 'text-purple-300', apply: p => p.stats.pickupRange *= 1.5 },
             { id: 'orbit_shield', title: 'Orbiting Shield', desc: 'Spawns a shield that damages enemies.', color: 'text-cyan-400', apply: p => p.summons.orbitals = (p.summons.orbitals || 0) + 1 },
             { id: 'drone_up', title: 'Attack Drone', desc: 'Summons an autonomous attack drone.', color: 'text-zinc-300', apply: p => p.summons.drones = (p.summons.drones || 0) + 1 },
             { id: 'blade_up', title: 'Orbital Blade', desc: 'Summons a fast spinning blade.', color: 'text-fuchsia-500', apply: p => p.summons.blades = (p.summons.blades || 0) + 1 },
-            
-            // Synergy / Special
-            { id: 'glass_cannon', title: 'Glass Cannon', desc: '+100% Damage, -50% Max HP.', color: 'text-purple-300', apply: p => { p.stats.damage *= 2.0; p.stats.maxHp = Math.max(10, Math.floor(p.stats.maxHp * 0.5)); p.stats.hp = Math.min(p.stats.hp, p.stats.maxHp); } },
-            { id: 'combo_up', title: 'Adrenaline Rush', desc: 'Consecutive hits build damage multiplier. Upgrading raises max cap.', color: 'text-pink-400', apply: p => { p.stats.hasCombo = true; p.stats.comboLevel = (p.stats.comboLevel || 0) + 1; } },
-            
+
+            // Synergies
+            { id: 'bloodplague', title: 'Bloodplague', desc: 'SYNERGY: Bleeding enemies explode on death.', color: 'text-red-700', unique: true, req: ['bleed_up'], apply: p => p.effects.bloodplague = true },
+            { id: 'syn_toxic_blood', title: 'Toxic Hemorrhage', desc: 'SYNERGY: Bleeding enemies take 2x Poison damage.', color: 'text-lime-400', unique: true, req: ['bleed_up', 'poison_up'], apply: p => p.effects.toxicBlood = true },
+            { id: 'syn_frostfire', title: 'Thermal Collapse', desc: 'SYNERGY: Frozen enemies take massive Burn damage and shatter.', color: 'text-orange-400', unique: true, req: ['burn_up', 'freeze_up'], apply: p => p.effects.frostfire = true },
+            { id: 'syn_blade_bleed', title: 'Sawblade Singularity', desc: 'SYNERGY: Orbital Blades cause bleeding on hit.', color: 'text-rose-600', unique: true, req: ['blade_up', 'bleed_up'], apply: p => p.effects.bladeBleed = true },
             { id: 'syn_plasma_bounce', title: 'Plasma Ricochet', desc: 'SYNERGY: Bouncing projectiles create fiery explosions.', color: 'text-orange-500', unique: true, req: ['burn_up', 'bounce_up'], apply: p => p.effects.plasmaBounce = true },
-            { id: 'syn_orbital_turret', title: 'Orbital Turrets', desc: 'SYNERGY: Orbiting shields automatically fire small lasers.', color: 'text-cyan-300', unique: true, req: ['orbit_shield', 'drone_up'], apply: p => p.effects.orbitalTurret = true }
+            { id: 'syn_orbital_turret', title: 'Orbital Turrets', desc: 'SYNERGY: Orbiting shields automatically fire small lasers.', color: 'text-cyan-300', unique: true, req: ['orbit_shield', 'drone_up'], apply: p => p.effects.orbitalTurret = true },
+            { id: 'syn_arc_storm', title: 'Arc Storm', desc: 'SYNERGY: Ricochets summon lightning strikes.', color: 'text-yellow-300', unique: true, req: ['bounce_up', 'lightning_up'], apply: p => p.effects.arcStorm = true },
+            { id: 'syn_necrotic', title: 'Necrotic Payload', desc: 'SYNERGY: Poisoned enemies explode violently.', color: 'text-emerald-500', unique: true, req: ['poison_up', 'explode_up'], apply: p => p.effects.necrotic = true },
+            { id: 'syn_ghost', title: 'Ghost Volley', desc: 'SYNERGY: Dodging releases spectral projectiles.', color: 'text-slate-300', unique: true, req: ['dodge_up', 'proj_up'], apply: p => p.effects.ghostVolley = true },
+            { id: 'syn_titan', title: 'Titanbreaker', desc: 'SYNERGY: Giant projectiles deal 3x damage to Bosses.', color: 'text-amber-500', unique: true, req: ['giant_up', 'boss_hunt'], apply: p => p.effects.titanbreaker = true },
+            { id: 'syn_fortress', title: 'Orbital Fortress', desc: 'SYNERGY: Orbitals grant massive armor bonuses.', color: 'text-zinc-200', unique: true, req: ['orbit_shield', 'armor_up'], apply: p => p.effects.orbitalFortress = true },
+
+            // Forbiddens
+            { id: 'f_corrupted', title: 'Corrupted Core', desc: 'FORBIDDEN: +300% Damage. Lose 2% Max HP per second.', color: 'text-red-600', isForbidden: true, unique: true, apply: p => { p.stats.damage *= 4.0; p.effects.corrupted = true; } },
+            { id: 'f_fragile', title: 'Fragile Infinity', desc: 'FORBIDDEN: Infinite Pierce & Bounce. Max HP becomes 1.', color: 'text-red-600', isForbidden: true, unique: true, apply: p => { p.stats.pierce = 999; p.stats.bounce = 99; p.stats.maxHp = 1; p.stats.hp = 1; } }
         ];
 
         const MathHelper = {
@@ -392,8 +736,8 @@
                     summons: {}, upgradesLog: {}, ownedUpgrades: new Set(),
                     progression: { level: 1, xp: 0, nextXp: 50, kills: 0 },
                     lastAttackTime: 0, combo: 1.0, comboTimer: 0,
-                    dashActive: 0, dashCooldownTimer: 0, shield: 0,
-                    beamTarget: null
+                    dashActive: 0, dashCooldownTimer: 0, shield: 0, beamTarget: null,
+                    runStats: { damageDealt: 0, damageTaken: 0, healingReceived: 0, projectilesFired: 0, critsLanded: 0, statusEffectsApplied: 0, dodgesTriggered: 0, highestDps: 0, currentSecDmg: 0, lastSecTime: 0, synergiesActivated: 0, bossKills: 0 }
                 };
                 
                 if(charId === 'architect') { this.player.summons.orbitals = 2; this.player.summons.drones = 1; }
@@ -411,9 +755,7 @@
                 for(let i=0; i<40; i++) {
                     let ox = MathHelper.rand(-1800, 1800);
                     let oy = MathHelper.rand(-1800, 1800);
-                    if(Math.hypot(ox, oy) > 200) {
-                        this.obstacles.push({x: ox, y: oy, radius: MathHelper.rand(30, 100)});
-                    }
+                    if(Math.hypot(ox, oy) > 200) this.obstacles.push({x: ox, y: oy, radius: MathHelper.rand(30, 100)});
                 }
                 this.worldEvent = { active: null, timer: 0 };
             }
@@ -423,18 +765,8 @@
         let commandQueue = []; 
 
         const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false, " ": false };
-        
-        window.addEventListener('keydown', e => { 
-            const k = e.key.toLowerCase();
-            if(keys.hasOwnProperty(k)) keys[k] = true; 
-            else if(keys.hasOwnProperty(e.key)) keys[e.key] = true; 
-        });
-        window.addEventListener('keyup', e => { 
-            const k = e.key.toLowerCase();
-            if(keys.hasOwnProperty(k)) keys[k] = false; 
-            else if(keys.hasOwnProperty(e.key)) keys[e.key] = false; 
-        });
-
+        window.addEventListener('keydown', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = true; else if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
+        window.addEventListener('keyup', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = false; else if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
         window.addEventListener('keydown', e => {
             if((e.key === 'u' || e.key === 'U') && state.status === 'PLAYING') {
                 const tr = UI.tracker;
@@ -454,7 +786,7 @@
             if (dirX !== 0 && dirY !== 0) { const len = Math.sqrt(dirX*dirX + dirY*dirY); dirX /= len; dirY /= len; }
             if (dirX !== 0 || dirY !== 0) commandQueue.push({ type: 'MOVE', dirX, dirY });
 
-            if (keys[" "] && state.player.dashCooldownTimer <= 0) {
+            if (keys[" "] && state.player.dashCooldownTimer <= 0 && state.player.stats.dashCooldown > 0) {
                 commandQueue.push({ type: 'DASH', dirX: dirX || 1, dirY: dirY || 0 }); 
                 keys[" "] = false; 
             }
@@ -470,8 +802,9 @@
                 return reqMet && notMaxed;
             });
             
-            let synergies = validUpgrades.filter(u => u.req && u.req.length > 0);
-            let regulars = validUpgrades.filter(u => !u.req || u.req.length === 0);
+            let synergies = validUpgrades.filter(u => u.req && u.req.length > 0 && !u.isForbidden);
+            let regulars = validUpgrades.filter(u => !u.req && !u.isForbidden);
+            let forbiddens = validUpgrades.filter(u => u.isForbidden);
             
             let shuffledRegs = [...regulars].sort(() => 0.5 - Math.random());
             let shuffledSyns = [...synergies].sort(() => 0.5 - Math.random());
@@ -484,19 +817,28 @@
                 selected = shuffledRegs.slice(0, 3);
             }
 
+            if(forbiddens.length > 0 && Math.random() < 0.05) selected[selected.length - 1] = forbiddens[Math.floor(Math.random() * forbiddens.length)];
             selected.sort(() => 0.5 - Math.random());
 
             selected.forEach(upg => {
                 const isSyn = upg.req && upg.req.length > 0;
-                const borderClass = isSyn ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.2)]' : 'border-white/5';
+                let cardClasses = `upgrade-card rounded-2xl p-6 cursor-pointer w-full md:w-[30%] flex flex-col items-center text-center `;
+                if(upg.isForbidden) cardClasses += `forbidden-card`;
+                else if (isSyn) cardClasses += `border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.2)]`;
+
                 const btn = document.createElement('div');
+                btn.className = cardClasses;
                 
-                btn.className = `upgrade-card rounded-2xl p-6 cursor-pointer w-full md:w-[30%] flex flex-col items-center text-center border ${borderClass}`;
+                let icon = '<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z"/></svg>';
+                if(isSyn) icon = '<svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>';
+                if(upg.isForbidden) icon = '<svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>';
+
                 btn.innerHTML = `
                     <div class="w-12 h-12 rounded-full mb-3 flex items-center justify-center bg-white/5 border border-white/10 ${upg.color}">
-                        ${isSyn ? '<svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>' : '<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z"/></svg>'}
+                        ${icon}
                     </div>
                     ${isSyn ? '<span class="text-[10px] font-bold tracking-widest text-yellow-400 mb-2 uppercase bg-yellow-500/10 px-2 py-0.5 rounded">Synergy Discovered</span>' : ''}
+                    ${upg.isForbidden ? '<span class="text-[10px] font-bold tracking-widest text-red-400 mb-2 uppercase bg-red-900/30 px-2 py-0.5 rounded">Anomaly Detected</span>' : ''}
                     <h3 class="text-xl font-bold ${upg.color} mb-2">${upg.title}</h3>
                     <p class="text-slate-400 text-sm font-mono leading-relaxed">${upg.desc}</p>
                 `;
@@ -504,11 +846,29 @@
                     upg.apply(state.player);
                     state.player.upgradesLog[upg.title] = (state.player.upgradesLog[upg.title] || 0) + 1;
                     state.player.ownedUpgrades.add(upg.id);
+                    if(isSyn) state.player.runStats.synergiesActivated++;
                     syncSummons();
                     state.status = 'PLAYING'; UI.levelup.classList.add('hidden'); updateHUD();
                 };
                 UI.upgradeContainer.appendChild(btn);
             });
+        }
+
+        function generateBuildName(p) {
+            let synCount = p.runStats.synergiesActivated;
+            if (p.effects.corrupted && p.stats.maxHp === 1) return "Quantum Butcher";
+            if (synCount >= 5) return "Infinite Arsenal";
+            if (p.effects.bloodplague && p.stats.weaponType === 'spin') return "Neon Executioner";
+            if (p.effects.bloodplague) return "The Blood Engine";
+            if (p.effects.singularity >= 3) return "The Walking Singularity";
+            if (p.summons.orbitals >= 4) return "Orbital Nightmare";
+            if (p.stats.bounce >= 4) return "The Ricochet God";
+            if (p.effects.frostfire) return "Frostburn Reactor";
+            if (p.stats.weaponType === 'beam' && p.effects.burn) return "Heat Death Protocol";
+            if (p.summons.drones >= 3) return "The Swarm King";
+            if (p.stats.critChance >= 0.5) return "The Crit Machine";
+            if (p.stats.dodge >= 0.3) return "Phantom Walker";
+            return "Survivor.exe";
         }
 
         function updateTrackerUI() {
@@ -561,7 +921,7 @@
 
         function spawnEnemy(isSwarm = false) {
             const angle = Math.random() * Math.PI * 2;
-            const dist = isSwarm ? MathHelper.rand(700, 1100) : Math.max(vw, vh) * 0.6; 
+            const dist = isSwarm ? MathHelper.rand(600, 1000) : Math.max(vw, vh) * 0.6; 
             state.spawner.waveMult = 1.0 + (state.gameTime / 60) * 0.5; 
             
             let maxTier = Math.min(TIERS.length - 1, Math.floor(state.gameTime / 60)); 
@@ -611,7 +971,7 @@
                 speed: 40, damage: 30 * waveScale,
                 freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: true, name: `${t.name} MK-${Math.floor(state.spawner.bossesSpawned/BOSS_TEMPLATES.length) + 1}`,
-                state: 'chase', timer: 0, vx: 0, vy: 0
+                state: 'chase', timer: 0, vx: 0, vy: 0, maxPhase: 2, phase: 1
             };
             
             state.enemies.push(boss); state.bossActive = boss; state.spawner.bossesSpawned++;
@@ -627,107 +987,19 @@
                 pierceLeft: stats.pierce || 0, bounceLeft: stats.bounce || 0, homing: stats.homing || 0, 
                 explodeRadius: stats.explodeRadius || 0, color, isEnemy
             });
-        }
-
-        function updateCombat(dt) {
-            const p = state.player; const now = state.gameTime;
-            
-            if (p.stats.weaponType === 'beam') {
-                let nearest = null, minDist = p.stats.attackRange;
-                for (let e of state.enemies) {
-                    const d = MathHelper.dist(p, e);
-                    if (d < minDist) { minDist = d; nearest = e; }
-                }
-                if (nearest) {
-                    p.beamTarget = nearest;
-                    applyDamage(nearest, p.stats.damage * dt, p.color);
-                    if(p.stats.lifesteal > 0 && Math.random()<0.1) p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + p.stats.damage * dt * p.stats.lifesteal);
-                } else { p.beamTarget = null; }
-            } 
-            else if (p.stats.weaponType === 'spin') {
-                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
-                    for (let e of state.enemies) {
-                        if (MathHelper.dist(p, e) <= p.stats.attackRange + e.radius) {
-                            applyDamage(e, p.stats.damage, p.color);
-                            if (p.effects.bleed) e.bleedTimer = 4.0;
-                            if (p.effects.poison) e.poisonTimer = 4.0;
-                            if (p.effects.freeze) e.freezeTimer = 2.0;
-                            if (p.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + p.effects.burn; }
-                        }
-                    }
-                    state.particles.push({ type: 'spin', playerAttached: true, radius: p.stats.attackRange, life: 0.3, maxLife: 0.3, color: p.color, angle: Math.random() * Math.PI*2 });
-                    p.lastAttackTime = now;
-                }
-            }
-            else if (p.stats.weaponType === 'pulse') {
-                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
-                    explosion(p.x, p.y, p.stats.attackRange, p.stats.damage, p.color);
-                    p.lastAttackTime = now;
-                }
-            }
-            else if (p.stats.weaponType === 'orbital') {
-                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
-                    let targets = [];
-                    for (let e of state.enemies) {
-                        if (MathHelper.dist(p, e) <= p.stats.attackRange) targets.push(e);
-                    }
-                    targets.sort(() => 0.5 - Math.random());
-                    let count = Math.min(p.stats.projectiles, targets.length);
-                    
-                    if (targets.length > 0) {
-                        for(let i=0; i < p.stats.projectiles; i++) {
-                            let t = targets[i % targets.length];
-                            state.particles.push({ type: 'vertical_beam', x: t.x, y: t.y, life: 0.3, maxLife: 0.3, color: '#a3e635', radius: p.stats.explodeRadius || 80 });
-                            explosion(t.x, t.y, p.stats.explodeRadius || 80, p.stats.damage, 'rgba(163, 230, 53, 0.4)');
-                            if (p.effects.bleed) t.bleedTimer = 4.0;
-                            if (p.effects.poison) t.poisonTimer = 4.0;
-                            if (p.effects.freeze) t.freezeTimer = 2.0;
-                            if (p.effects.burn) { t.burnTimer = 3.0; t.burnStacks = (t.burnStacks||0) + p.effects.burn; }
-                        }
-                        p.lastAttackTime = now;
-                    }
-                }
-            }
-            else {
-                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
-                    let nearest = null, minDist = p.stats.attackRange;
-                    for (let e of state.enemies) {
-                        const d = MathHelper.dist(p, e);
-                        if (d < minDist) { minDist = d; nearest = e; }
-                    }
-                    
-                    if (nearest || p.stats.weaponType === 'mine') {
-                        const angleToTarget = nearest ? MathHelper.angle(p, nearest) : 0;
-                        const count = p.stats.projectiles; const spread = p.stats.spread;
-
-                        for(let i = 0; i < count; i++) {
-                            let offset = count > 1 ? (-spread/2 + (spread / (count - 1)) * i) : 0;
-                            offset += MathHelper.rand(-0.05, 0.05); 
-                            createProjectile(p.x, p.y, angleToTarget + offset, p.stats, p.effects, p.color);
-                        }
-                        p.lastAttackTime = now;
-                    }
-                }
-            }
-
-            for(let d of state.drones) {
-                if(now - d.lastFire > d.cooldown) {
-                    let target = state.enemies[Math.floor(Math.random() * state.enemies.length)];
-                    if(target && MathHelper.dist(d, target) < 400) {
-                        createProjectile(d.x, d.y, MathHelper.angle(d, target), { projectileSpeed: 500, damage: p.stats.damage * 0.4, attackRange: 400, scale: 0.5 }, {}, '#cbd5e1');
-                        d.lastFire = now;
-                    }
-                }
-            }
+            if(!isEnemy) state.player.runStats.projectilesFired++;
         }
 
         function applyDamage(e, baseDmg, colorOverride = null) {
             const p = state.player;
             let dmg = baseDmg * p.combo;
+            if(p.stats.bossDmg && (e.isBoss || e.isElite)) dmg *= p.stats.bossDmg;
             
             let isCrit = Math.random() < p.stats.critChance;
-            if(isCrit) dmg *= p.stats.critMult;
+            if(isCrit) { dmg *= p.stats.critMult; p.runStats.critsLanded++; }
             e.hp -= dmg;
+            p.runStats.damageDealt += dmg;
+            p.runStats.currentSecDmg += dmg;
             
             if(p.stats.hasCombo) { 
                 let maxCombo = 1.0 + ((p.stats.comboLevel || 1) * 0.5);
@@ -735,9 +1007,12 @@
                 p.comboTimer = 2.0; 
             }
 
-            if(p.stats.lifesteal > 0 && !e.isBoss && !isCrit) {
+            if(p.stats.lifesteal > 0 && !e.isBoss && !isCrit) { 
                 let heal = dmg * p.stats.lifesteal;
-                if(p.stats.hp < p.stats.maxHp) { p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal); }
+                if(p.stats.hp < p.stats.maxHp) { 
+                    p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal); 
+                    p.runStats.healingReceived += heal;
+                }
             }
 
             if(Math.random() < 0.3 || isCrit) {
@@ -752,6 +1027,39 @@
             for(let e of state.enemies) if(MathHelper.dist({x,y}, e) < radius + e.radius) applyDamage(e, dmg, '#fb923c');
         }
 
+        function takePlayerDamage(rawDmg, isTrueDamage = false) {
+            const p = state.player;
+            
+            if (!isTrueDamage) {
+                if(Math.random() < p.stats.dodge) { 
+                    state.floatingTexts.push({ x: p.x, y: p.y - 20, text: "DODGE", life: 0.5, color: '#94a3b8', vy: -20, size: 10 }); 
+                    p.runStats.dodgesTriggered++;
+                    if (p.effects.ghostVolley) {
+                        for(let i=0; i<3; i++) createProjectile(p.x, p.y, MathHelper.rand(0, Math.PI*2), {projectileSpeed: 500, damage: p.stats.damage, attackRange: 400}, p.effects, 'rgba(255,255,255,0.5)');
+                    }
+                    return; 
+                }
+                
+                p.combo = 1.0; 
+                let finalArmor = p.stats.armor;
+                if (p.effects.orbitalFortress) finalArmor += (p.summons.orbitals || 0) * 5;
+
+                let finalDmg = Math.max(1, rawDmg - finalArmor);
+                
+                if(p.shield > 0) { if(p.shield >= finalDmg) { p.shield -= finalDmg; p.runStats.damageTaken += finalDmg; return; } else { finalDmg -= p.shield; p.shield = 0; } }
+                p.stats.hp -= finalDmg;
+                p.runStats.damageTaken += finalDmg;
+            } else {
+                p.shield = 0;
+                p.combo = 1.0;
+                p.stats.hp -= rawDmg;
+                p.runStats.damageTaken += rawDmg;
+                state.floatingTexts.push({ x: p.x, y: p.y - 40, text: "CRITICAL HIT", life: 1.5, color: '#ef4444', vy: -10, size: 16 });
+            }
+
+            if (p.stats.hp <= 0) gameOver();
+        }
+
         function updateEngine(dtReal) {
             if (state.status !== 'PLAYING') return;
             const p = state.player;
@@ -759,9 +1067,21 @@
             const dt = dtReal * state.timeScale;
             state.gameTime += dtReal;
 
+            // DPS Calc
+            if (Math.floor(state.gameTime) > p.runStats.lastSecTime) {
+                if (p.runStats.currentSecDmg > p.runStats.highestDps) p.runStats.highestDps = p.runStats.currentSecDmg;
+                p.runStats.currentSecDmg = 0;
+                p.runStats.lastSecTime = Math.floor(state.gameTime);
+            }
+
             if(p.comboTimer > 0) p.comboTimer -= dtReal; else p.combo = 1.0;
             if(p.dashCooldownTimer > 0) p.dashCooldownTimer -= dtReal;
             if(p.dashActive > 0) p.dashActive -= dtReal;
+
+            if(p.effects.corrupted) {
+                p.stats.hp -= (p.stats.maxHp * 0.02) * dtReal;
+                if(p.stats.hp <= 0) gameOver();
+            }
 
             function constrainToBounds(obj) {
                 if(obj.x < -2000 + obj.radius) obj.x = -2000 + obj.radius;
@@ -805,51 +1125,32 @@
             collideWithObstacles(p);
             constrainToBounds(p);
 
-            // Anti-Standstill System (Inescapable)
+            // Anti-Standstill System (Unescapable Orbital Strike)
             if (state.gameTime % 1 < dtReal) {
                 if (!movedThisFrame || MathHelper.dist(p, {x: state.antiIdle.lastX, y: state.antiIdle.lastY}) < 30) {
                     state.antiIdle.timer++;
-                    if (state.antiIdle.timer === 2) {
-                        state.floatingTexts.push({ x: p.x, y: p.y - 40, text: "MOVEMENT REQUIRED", life: 1.5, color: '#facc15', vy: -10, size: 12 });
-                    }
+                    if (state.antiIdle.timer === 2) state.floatingTexts.push({ x: p.x, y: p.y - 40, text: "MOVEMENT REQUIRED", life: 1.5, color: '#facc15', vy: -10, size: 12 });
                     if (state.antiIdle.timer >= 4) {
-                        // INESCAPABLE TRUE DAMAGE AFK STRIKE
                         state.particles.push({ type: 'vertical_beam', x: p.x, y: p.y, life: 0.5, maxLife: 0.5, color: '#ef4444', radius: 150 });
-                        explosion(p.x, p.y, 150, 0, 'rgba(239, 68, 68, 0.8)'); // Visual AoE only
-                        
-                        // Bypass dodge, armor, and shields completely
-                        p.shield = 0; 
-                        p.combo = 1.0;
-                        p.stats.hp -= (p.stats.maxHp * 0.4); // 40% Max HP True Damage
-                        
+                        explosion(p.x, p.y, 150, 0, 'rgba(239, 68, 68, 0.8)'); 
+                        takePlayerDamage(p.stats.maxHp * 0.4, true); // True Damage Orbital
                         state.floatingTexts.push({ x: p.x, y: p.y - 60, text: "ORBITAL PUNISHMENT", life: 2.0, color: '#ef4444', vy: -20, size: 16 });
-                        if (p.stats.hp <= 0) gameOver();
-                        
                         state.antiIdle.timer = 0;
                     }
-                } else {
-                    state.antiIdle.timer = 0;
-                }
+                } else { state.antiIdle.timer = 0; }
                 state.antiIdle.lastX = p.x; state.antiIdle.lastY = p.y;
             }
 
             state.camera.x = MathHelper.lerp(state.camera.x, p.x - vw/2, 5 * dtReal);
             state.camera.y = MathHelper.lerp(state.camera.y, p.y - vh/2, 5 * dtReal);
 
-            if(p.stats.regen > 0 && p.stats.hp < p.stats.maxHp) p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + p.stats.regen * dtReal);
-
-            if(p.stats.vampAura > 0 && state.gameTime % 0.5 < dtReal) {
-                let healed = false;
-                for(let e of state.enemies) {
-                    if(MathHelper.dist(p, e) < 150) {
-                        applyDamage(e, p.stats.damage * 0.2 * p.stats.vampAura, '#e11d48');
-                        healed = true;
-                        state.particles.push({x: e.x, y: e.y, targetX: p.x, targetY: p.y, life: 0.2, color: '#e11d48', isLine: true});
-                    }
-                }
-                if(healed) p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + (2 * p.stats.vampAura));
+            if(p.stats.regen > 0 && p.stats.hp < p.stats.maxHp && !p.effects.corrupted) {
+                let heal = p.stats.regen * dtReal;
+                p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal);
+                p.runStats.healingReceived += heal;
             }
 
+            // Summons
             let orbSpeed = 3 * state.timeScale;
             for(let i=0; i<state.orbitals.length; i++) {
                 let orb = state.orbitals[i]; orb.angle += orbSpeed * dtReal;
@@ -871,7 +1172,6 @@
                 d.targetX = p.x + Math.cos(state.gameTime*2 + d.lastFire)*50; d.targetY = p.y + Math.sin(state.gameTime*2 + d.lastFire)*50;
                 d.x = MathHelper.lerp(d.x, d.targetX, 3*dtReal); d.y = MathHelper.lerp(d.y, d.targetY, 3*dtReal);
             }
-
             let bladeSpeed = 10 * state.timeScale;
             for(let i=0; i<state.blades.length; i++) {
                 let b = state.blades[i];
@@ -882,19 +1182,18 @@
                     if((e.bladeHitTimer || 0) > 0) e.bladeHitTimer -= dtReal;
                     if(MathHelper.dist({x: b.x, y: b.y}, e) < e.radius + 20 && (e.bladeHitTimer || 0) <= 0) {
                         applyDamage(e, p.stats.damage * 1.5, '#f43f5e');
-                        if (p.effects.bladeBleed) e.bleedTimer = 4.0;
+                        if (p.effects.bladeBleed) { e.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
                         state.particles.push({x: e.x, y: e.y, vx: MathHelper.rand(-30,30), vy: MathHelper.rand(-30,30), life: 0.2, color: '#f43f5e', size: 4});
                         e.bladeHitTimer = 0.25; 
                     }
                 }
             }
 
+            // Progression
             if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.bossesSpawned + 1) * 100 && !state.bossActive) spawnBoss();
             if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.elitesSpawned + 1) * 25 && !state.bossActive) spawnElite();
-
-            // Anomalies trigger strictly every 300 kills
             if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.lastAnomalyKills + 1) * 300 && !state.bossActive) {
-                let events = ["METEOR_SHOWER", "SWARM", "BLACKOUT", "TIME_DISTORTION", "BLOOD_MOON"];
+                let events = ["TIME_DISTORTION", "BLOOD_MOON"];
                 state.worldEvent.active = events[Math.floor(Math.random() * events.length)];
                 state.worldEvent.timer = 15;
                 state.spawner.lastAnomalyKills++;
@@ -903,23 +1202,10 @@
 
             if (state.worldEvent.timer > 0) {
                 state.worldEvent.timer -= dtReal;
-                
                 if (state.worldEvent.active === "TIME_DISTORTION") state.timeScale = 0.3;
                 else state.timeScale = 1.0;
-
-                if (state.worldEvent.active === "METEOR_SHOWER" && Math.random() < 0.015) {
-                     state.hazards.push({ x: p.x + MathHelper.rand(-800, 800), y: p.y + MathHelper.rand(-800, 800), radius: MathHelper.rand(60, 150), timer: 2.5, damage: p.stats.maxHp * 0.15 });
-                }
-                if (state.worldEvent.active === "SWARM" && Math.floor(state.worldEvent.timer * 10) % 5 === 0 && state.enemies.length < 150) {
-                    spawnEnemy(true); 
-                }
-                if (state.worldEvent.active === "BLOOD_MOON" && Math.floor(state.worldEvent.timer * 10) % 2 === 0 && state.enemies.length < 250) {
-                    spawnEnemy(true);
-                }
-            } else { 
-                state.worldEvent.active = null; 
-                state.timeScale = 1.0; 
-            }
+                if (state.worldEvent.active === "BLOOD_MOON" && Math.floor(state.worldEvent.timer * 10) % 2 === 0 && state.enemies.length < 250) spawnEnemy(true);
+            } else { state.worldEvent.active = null; state.timeScale = 1.0; }
 
             if(!state.bossActive) {
                 state.spawner.nextSpawn -= dt;
@@ -930,11 +1216,89 @@
                 }
             }
 
-            updateCombat(dtReal);
+            // --- Combat Updates ---
+            const now = state.gameTime;
+            if (p.stats.weaponType === 'beam') {
+                let nearest = null, minDist = p.stats.attackRange;
+                for (let e of state.enemies) {
+                    const d = MathHelper.dist(p, e);
+                    if (d < minDist) { minDist = d; nearest = e; }
+                }
+                if (nearest) {
+                    p.beamTarget = nearest;
+                    applyDamage(nearest, p.stats.damage * dt, p.color);
+                    if(p.stats.lifesteal > 0 && Math.random()<0.1) {
+                        let heal = p.stats.damage * dt * p.stats.lifesteal;
+                        p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal);
+                        p.runStats.healingReceived += heal;
+                    }
+                } else { p.beamTarget = null; }
+            } 
+            else if (p.stats.weaponType === 'spin') {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    for (let e of state.enemies) {
+                        if (MathHelper.dist(p, e) <= p.stats.attackRange + e.radius) {
+                            applyDamage(e, p.stats.damage, p.color);
+                            if (p.effects.bleed) { e.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                            if (p.effects.poison) { e.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                            if (p.effects.freeze) { e.freezeTimer = 2.0; p.runStats.statusEffectsApplied++; }
+                            if (p.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + p.effects.burn; p.runStats.statusEffectsApplied++; }
+                        }
+                    }
+                    state.particles.push({ type: 'spin', playerAttached: true, radius: p.stats.attackRange, life: 0.3, maxLife: 0.3, color: p.color, angle: Math.random() * Math.PI*2 });
+                    p.lastAttackTime = now;
+                }
+            }
+            else if (p.stats.weaponType === 'pulse') {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    explosion(p.x, p.y, p.stats.attackRange, p.stats.damage, p.color);
+                    p.lastAttackTime = now;
+                }
+            }
+            else if (p.stats.weaponType === 'orbital') {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    let targets = [];
+                    for (let e of state.enemies) if (MathHelper.dist(p, e) <= p.stats.attackRange) targets.push(e);
+                    targets.sort(() => 0.5 - Math.random());
+                    let count = Math.min(p.stats.projectiles, targets.length);
+                    
+                    if (targets.length > 0) {
+                        for(let i=0; i < p.stats.projectiles; i++) {
+                            let t = targets[i % targets.length];
+                            state.particles.push({ type: 'vertical_beam', x: t.x, y: t.y, life: 0.3, maxLife: 0.3, color: '#a3e635', radius: p.stats.explodeRadius || 80 });
+                            explosion(t.x, t.y, p.stats.explodeRadius || 80, p.stats.damage, 'rgba(163, 230, 53, 0.4)');
+                            if (p.effects.bleed) { t.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                            if (p.effects.poison) { t.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                            if (p.effects.freeze) { t.freezeTimer = 2.0; p.runStats.statusEffectsApplied++; }
+                            if (p.effects.burn) { t.burnTimer = 3.0; t.burnStacks = (t.burnStacks||0) + p.effects.burn; p.runStats.statusEffectsApplied++; }
+                        }
+                        p.lastAttackTime = now;
+                    }
+                }
+            }
+            else {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    let nearest = null, minDist = p.stats.attackRange;
+                    for (let e of state.enemies) {
+                        const d = MathHelper.dist(p, e);
+                        if (d < minDist) { minDist = d; nearest = e; }
+                    }
+                    if (nearest) {
+                        const angleToTarget = MathHelper.angle(p, nearest);
+                        const count = p.stats.projectiles; const spread = p.stats.spread;
+                        for(let i = 0; i < count; i++) {
+                            let offset = count > 1 ? (-spread/2 + (spread / (count - 1)) * i) : 0;
+                            offset += MathHelper.rand(-0.05, 0.05); 
+                            createProjectile(p.x, p.y, angleToTarget + offset, p.stats, p.effects, p.color);
+                        }
+                        p.lastAttackTime = now;
+                    }
+                }
+            }
 
+            // Environment Physics
             for(let i=state.blackholes.length-1; i>=0; i--) {
-                let bh = state.blackholes[i];
-                bh.life -= dt;
+                let bh = state.blackholes[i]; bh.life -= dt;
                 for(let e of state.enemies) {
                     let d = MathHelper.dist(bh, e);
                     if(d < bh.radius * 2) {
@@ -947,8 +1311,7 @@
             }
 
             for (let i = state.hazards.length - 1; i >= 0; i--) {
-                let h = state.hazards[i];
-                h.timer -= dt;
+                let h = state.hazards[i]; h.timer -= dt;
                 if(h.timer <= 0) {
                     explosion(h.x, h.y, h.radius, 0, 'rgba(239, 68, 68, 0.4)'); 
                     if(MathHelper.dist(p, h) < h.radius + p.radius) takePlayerDamage(h.damage);
@@ -958,14 +1321,12 @@
 
             for (let i = state.projectiles.length - 1; i >= 0; i--) {
                 let proj = state.projectiles[i];
-                let pDt = proj.isEnemy ? dt : dtReal; // Player projectiles ignore time distortion
+                let pDt = proj.isEnemy ? dt : dtReal; 
                 proj.x += proj.vx * pDt; proj.y += proj.vy * pDt; proj.life -= pDt;
                 
                 let destroyed = false;
                 if (proj.x < -2000 || proj.x > 2000 || proj.y < -2000 || proj.y > 2000) destroyed = true;
-                for (let obs of state.obstacles) {
-                    if (MathHelper.dist(proj, obs) < proj.radius + obs.radius) { destroyed = true; break; }
-                }
+                for (let obs of state.obstacles) if (MathHelper.dist(proj, obs) < proj.radius + obs.radius) { destroyed = true; break; }
 
                 if(proj.homing > 0 && !proj.isEnemy && !destroyed) {
                     let nearest = null, minDist = 250;
@@ -990,47 +1351,54 @@
                         for (let j = state.enemies.length - 1; j >= 0; j--) {
                             let e = state.enemies[j];
                             if (!proj.hitTargets.has(e) && MathHelper.dist(proj, e) < proj.radius + e.radius) {
-                                applyDamage(e, proj.damage); proj.hitTargets.add(e);
-                                
-                                if (proj.effects.freeze) e.freezeTimer = 2.0; 
-                                if (proj.effects.bleed) e.bleedTimer = 4.0; 
-                                if (proj.effects.poison) e.poisonTimer = 4.0; 
-                                if (proj.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + proj.effects.burn; }
-                                if (proj.explodeRadius > 0) explosion(e.x, e.y, proj.explodeRadius, proj.damage * 0.5);
-                                if (proj.effects.singularity && Math.random() < 0.1) {
-                                    let lvl = proj.effects.singularity;
-                                    state.blackholes.push({ x: proj.x, y: proj.y, radius: 40 + lvl*15, pull: 100 + lvl*50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
-                                }
-
-                                if (proj.bounceLeft > 0) {
-                                    if(proj.effects.plasmaBounce) explosion(e.x, e.y, 80, proj.damage, 'rgba(249, 115, 22, 0.5)');
-                                    proj.bounceLeft--; proj.hitTargets.clear(); proj.hitTargets.add(e);
-                                    let nextTarget = null, nDist = 300;
-                                    for(let ne of state.enemies) { if(ne !== e) { let d = MathHelper.dist(e, ne); if(d < nDist) { nDist = d; nextTarget = ne; } } }
-                                    if(nextTarget) {
-                                        let a = MathHelper.angle(e, nextTarget); let s = Math.hypot(proj.vx, proj.vy);
-                                        proj.vx = Math.cos(a) * s; proj.vy = Math.sin(a) * s;
-                                    }
-                                } else if (proj.pierceLeft > 0) { proj.pierceLeft--; } else { destroyed = true; break; }
+                            applyDamage(e, proj.damage); proj.hitTargets.add(e);
+                            
+                            if (proj.effects.freeze) { e.freezeTimer = 2.0; p.runStats.statusEffectsApplied++; }
+                            if (proj.effects.bleed) { e.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                            if (proj.effects.poison) { e.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                            if (proj.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + proj.effects.burn; p.runStats.statusEffectsApplied++; }
+                            if (proj.explodeRadius > 0) explosion(e.x, e.y, proj.explodeRadius, proj.damage * 0.5);
+                            if (proj.effects.singularity && Math.random() < 0.1) {
+                                state.blackholes.push({ x: proj.x, y: proj.y, radius: 40 + proj.effects.singularity*15, pull: 100 + proj.effects.singularity*50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
                             }
+
+                            if (proj.bounceLeft > 0) {
+                                if(proj.effects.plasmaBounce) explosion(e.x, e.y, 80, proj.damage, 'rgba(249, 115, 22, 0.5)');
+                                if(proj.effects.arcStorm) {
+                                    let randTarget = state.enemies[Math.floor(Math.random() * state.enemies.length)];
+                                    if(randTarget) {
+                                        state.particles.push({x: e.x, y: e.y, targetX: randTarget.x, targetY: randTarget.y, life: 0.2, color: '#fde047', isLine: true});
+                                        applyDamage(randTarget, proj.damage, '#fde047');
+                                    }
+                                }
+                                proj.bounceLeft--; proj.hitTargets.clear(); proj.hitTargets.add(e);
+                                let nextTarget = null, nDist = 300;
+                                for(let ne of state.enemies) { if(ne !== e) { let d = MathHelper.dist(e, ne); if(d < nDist) { nDist = d; nextTarget = ne; } } }
+                                if(nextTarget) {
+                                    let a = MathHelper.angle(e, nextTarget); let s = Math.hypot(proj.vx, proj.vy);
+                                    proj.vx = Math.cos(a) * s; proj.vy = Math.sin(a) * s;
+                                }
+                            } else if (proj.pierceLeft > 0) { proj.pierceLeft--; } else { destroyed = true; break; }
                         }
                     }
                 }
-                
+                } 
                 if (destroyed || proj.life <= 0) state.projectiles.splice(i, 1);
             }
 
+            // Enemy Logic & Pathing
             for (let i = state.enemies.length - 1; i >= 0; i--) {
                 let e = state.enemies[i];
                 let currentSpeed = e.speed;
                 if (state.worldEvent.active === 'BLOOD_MOON') currentSpeed *= 1.5;
                 if (e.freezeTimer > 0) { currentSpeed *= 0.3; e.freezeTimer -= dt; }
-                if (e.bleedTimer > 0) { e.hp -= (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt; e.bleedTimer -= dt; if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:0, vy:-10, life:0.4, color:'#be123c', size:3}); }
-                
+                if (e.bleedTimer > 0) { e.hp -= (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt; e.bleedTimer -= dt; if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:0, vy:-10, life:0.4, color:'#be123c', size:3}); p.runStats.damageDealt += (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt;}
                 if (e.poisonTimer > 0) { 
                     let poisonDmg = (e.maxHp * 0.02 * (p.effects.poison||1)) * dt;
                     if (p.effects.toxicBlood && e.bleedTimer > 0) poisonDmg *= 2; 
+                    if (p.effects.necrotic && e.hp - poisonDmg <= 0) explosion(e.x, e.y, 100, p.stats.damage * 2, 'rgba(34, 197, 94, 0.4)');
                     e.hp -= poisonDmg; 
+                    p.runStats.damageDealt += poisonDmg;
                     e.poisonTimer -= dt; 
                     if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:MathHelper.rand(-5,5), vy:-10, life:0.3, color:'#22c55e', size:4}); 
                 }
@@ -1054,9 +1422,11 @@
 
                 if (e.hp <= 0) {
                     if (p.effects.bloodplague && e.bleedTimer > 0) explosion(e.x, e.y, 60, p.stats.damage * 1.5, 'rgba(159, 18, 57, 0.5)');
+                    if (p.effects.frostfire && e.freezeTimer > 0 && e.burnTimer > 0) explosion(e.x, e.y, 100, p.stats.damage * 3, 'rgba(56, 189, 248, 0.6)');
 
                     if(e.isBoss) {
                         state.bossActive = null;
+                        p.runStats.bossKills++;
                         for(let k=0; k<50; k++) state.gems.push({ x: e.x + MathHelper.rand(-100,100), y: e.y + MathHelper.rand(-100,100), value: 50 });
                         explosion(e.x, e.y, 250, 0, 'rgba(255,255,255,0.2)'); 
                     } else if (e.isElite) {
@@ -1074,24 +1444,22 @@
                 e.timer += dt;
                 if(e.isBoss) {
                     const angle = MathHelper.angle(e, p);
-                    if(e.behavior === 'ring') {
-                        e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
-                        if(e.timer > 2.5) { e.timer = 0; for(let r=0; r<16; r++) createProjectile(e.x, e.y, (Math.PI*2/16)*r + state.gameTime, {projectileSpeed: 200, damage: e.damage, attackRange: 1000}, {}, e.color, true); }
-                    } else if (e.behavior === 'spiral') {
+                    if(e.behavior === 'teleport') {
+                        if(e.timer > 3) { e.x = p.x + MathHelper.rand(-400, 400); e.y = p.y + MathHelper.rand(-400, 400); e.timer = 0; explosion(e.x, e.y, 100, 0, 'rgba(255,255,255,0.5)'); }
+                        if(Math.random() < 0.05) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 300, damage: e.damage, attackRange: 1000}, {}, e.color, true);
+                    } else if (e.behavior === 'bullet_hell') {
+                        e.x += Math.cos(angle) * currentSpeed * 0.3 * dt; e.y += Math.sin(angle) * currentSpeed * 0.3 * dt;
+                        if(e.timer > 0.5) { e.timer = 0; for(let r=0; r<8; r++) createProjectile(e.x, e.y, (Math.PI*2/8)*r + state.gameTime, {projectileSpeed: 200, damage: e.damage, attackRange: 1000}, {}, e.color, true); }
+                    } else if (e.behavior === 'summoner') {
                         e.x += Math.cos(angle) * currentSpeed * 0.5 * dt; e.y += Math.sin(angle) * currentSpeed * 0.5 * dt;
-                        if(e.timer > 0.1) { e.timer = 0; createProjectile(e.x, e.y, state.gameTime * 5, {projectileSpeed: 250, damage: e.damage, attackRange: 800}, {}, e.color, true); }
+                        if(e.timer > 2.0) { e.timer = 0; for(let r=0; r<3; r++) state.enemies.push({ x: e.x + MathHelper.rand(-50,50), y: e.y + MathHelper.rand(-50,50), radius: 10, sides: 3, color: '#ec4899', hp: 50, maxHp: 50, speed: 200, damage: 10, erratic: true, isBoss: false, vx:0, vy:0, timer:0, xp: 0 }); }
                     } else if (e.behavior === 'pull') {
                         if(MathHelper.dist(e, p) < 500 && p.dashActive <= 0) { p.x += (e.x - p.x)*0.8*dt; p.y += (e.y - p.y)*0.8*dt; }
                         if(e.timer > 3) { e.timer = 0; for(let r=0; r<8; r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.2, 0.2), {projectileSpeed: 300, damage: e.damage*1.5, attackRange: 1000, scale: 2}, {}, e.color, true, 'giant'); }
-                    } else if (e.behavior === 'dash') {
-                        if(e.timer > 2) { e.timer = -1; e.vx = Math.cos(angle) * 800; e.vy = Math.sin(angle) * 800; }
-                        if(e.timer < 0 && Math.random()<0.2) createProjectile(e.x, e.y, 0, {projectileSpeed: 0, damage: e.damage, attackRange: 1000}, {}, e.color, true);
-                    } else if (e.behavior === 'laser') {
-                        e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
-                        if(e.timer > 3.5) { e.timer = 0; createProjectile(e.x, e.y, angle, {projectileSpeed: 800, damage: e.damage*2, attackRange: 2000, scale: 3}, {}, e.color, true, 'giant'); }
-                    } else if (e.behavior === 'shotgun') {
-                        e.x += Math.cos(angle + Math.sin(state.gameTime)*2) * currentSpeed * dt; e.y += Math.sin(angle + Math.sin(state.gameTime)*2) * currentSpeed * dt;
-                        if(e.timer > 2) { e.timer = 0; for(let r=0; r<10; r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 400, damage: e.damage, attackRange: 600}, {}, e.color, true); }
+                    } else if (e.behavior === 'omega') {
+                        e.x += Math.cos(angle) * currentSpeed * 0.2 * dt; e.y += Math.sin(angle) * currentSpeed * 0.2 * dt;
+                        if(e.timer > 0.2) { e.timer = 0; createProjectile(e.x, e.y, state.gameTime * 5, {projectileSpeed: 400, damage: e.damage, attackRange: 1500}, {}, e.color, true); }
+                        if(e.hp < e.maxHp * 0.5 && e.phase === 1) { e.phase = 2; state.worldEvent.active = "BLOOD_MOON"; state.worldEvent.timer = 999; }
                     }
                 } else if (e.isElite) {
                     const angle = MathHelper.angle(e, p);
@@ -1129,7 +1497,7 @@
 
             state.particles.forEach(pt => { 
                 if(pt.playerAttached) { pt.x = p.x; pt.y = p.y; }
-                else if(!pt.isPulse && !pt.isLine && pt.type !== 'spin' && pt.type !== 'vertical_beam') { pt.x+=pt.vx*dtReal; pt.y+=pt.vy*dtReal; } 
+                else if(!pt.isPulse && !pt.isLine && pt.type !== 'spin') { pt.x+=pt.vx*dtReal; pt.y+=pt.vy*dtReal; } 
                 pt.life-=dtReal; 
             });
             state.particles = state.particles.filter(pt => pt.life > 0);
@@ -1139,21 +1507,14 @@
             if (Math.floor(state.gameTime * 10) % 2 === 0) updateHUD(); 
         }
 
-        function takePlayerDamage(rawDmg) {
-            const p = state.player;
-            if(Math.random() < p.stats.dodge) { state.floatingTexts.push({ x: p.x, y: p.y - 20, text: "DODGE", life: 0.5, color: '#94a3b8', vy: -20, size: 10 }); return; }
-            
-            p.combo = 1.0; 
-            let finalDmg = Math.max(1, rawDmg - p.stats.armor);
-            
-            if(p.shield > 0) { if(p.shield >= finalDmg) { p.shield -= finalDmg; return; } else { finalDmg -= p.shield; p.shield = 0; } }
-            p.stats.hp -= finalDmg;
-
-            if (p.stats.hp <= 0) gameOver();
-        }
-
         function draw() {
-            ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh);
+            const p = state.player;
+            if (p.skin === 'blueprint') {
+                ctx.fillStyle = '#0f172a'; // Deep blue
+                ctx.fillRect(0, 0, vw, vh);
+            } else {
+                ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh);
+            }
             if (state.status === 'MENU') return;
 
             ctx.save(); ctx.translate(-state.camera.x, -state.camera.y);
@@ -1164,7 +1525,8 @@
             ctx.save();
             ctx.beginPath(); ctx.rect(-2000, -2000, 4000, 4000); ctx.clip();
 
-            ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1; const gs = 100;
+            ctx.strokeStyle = p.skin === 'blueprint' ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)'; 
+            ctx.lineWidth = 1; const gs = 100;
             const sx = Math.floor(state.camera.x / gs) * gs, sy = Math.floor(state.camera.y / gs) * gs;
             ctx.beginPath();
             for(let x = sx; x < sx + vw + gs; x += gs) { ctx.moveTo(x, sy); ctx.lineTo(x, sy + vh + gs); }
@@ -1172,9 +1534,14 @@
             ctx.stroke();
 
             for(let obs of state.obstacles) {
-                ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI*2); ctx.fill();
-                ctx.strokeStyle = '#334155'; ctx.lineWidth = 2; ctx.stroke();
-                ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius - 8, 0, Math.PI*2); ctx.stroke();
+                if(p.skin === 'wireframe' || p.skin === 'blueprint') {
+                    ctx.strokeStyle = p.skin === 'blueprint' ? '#fff' : '#334155'; ctx.lineWidth = 2;
+                    ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI*2); ctx.stroke();
+                } else {
+                    ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = '#334155'; ctx.lineWidth = 2; ctx.stroke();
+                    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius - 8, 0, Math.PI*2); ctx.stroke();
+                }
             }
 
             for(let bh of state.blackholes) {
@@ -1198,7 +1565,13 @@
 
             for(let e of state.enemies) {
                 ctx.fillStyle = e.freezeTimer > 0 ? '#67e8f9' : (e.burnTimer > 0 ? '#fb923c' : e.color);
-                ctx.beginPath(); MathHelper.drawPoly(ctx, e.x, e.y, e.radius, e.sides, state.gameTime * (e.isBoss?0.5:1)); ctx.fill();
+                
+                if (p.skin === 'wireframe' || p.skin === 'blueprint') {
+                    ctx.strokeStyle = p.skin === 'blueprint' ? '#fff' : ctx.fillStyle; ctx.lineWidth = 2;
+                    ctx.beginPath(); MathHelper.drawPoly(ctx, e.x, e.y, e.radius, e.sides, state.gameTime * (e.isBoss?0.5:1)); ctx.stroke();
+                } else {
+                    ctx.beginPath(); MathHelper.drawPoly(ctx, e.x, e.y, e.radius, e.sides, state.gameTime * (e.isBoss?0.5:1)); ctx.fill();
+                }
                 
                 if(e.isBoss || e.isElite) {
                     ctx.strokeStyle = e.color; ctx.lineWidth = e.isBoss ? 3 : 2;
@@ -1209,8 +1582,6 @@
                     ctx.fillStyle = '#ef4444'; ctx.fillRect(e.x - e.radius, e.y - e.radius - 8, (e.radius*2) * (Math.max(0,e.hp)/e.maxHp), 2);
                 }
             }
-
-            const p = state.player;
             
             if(p.stats.weaponType === 'beam' && p.beamTarget) {
                 ctx.strokeStyle = p.color; ctx.lineWidth = 3 + Math.random() * 3;
@@ -1224,13 +1595,12 @@
             
             if(p.skin === 'cyber') { ctx.shadowBlur = 10; ctx.shadowColor = '#0ff'; ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2; ctx.fillStyle = 'rgba(0, 255, 255, 0.1)'; }
             if(p.skin === 'cosmic') { ctx.fillStyle = '#0f172a'; ctx.shadowBlur = 15; ctx.shadowColor = '#8b5cf6'; }
-            if(p.skin === 'infernal') { ctx.fillStyle = '#b91c1c'; ctx.shadowBlur = 20; ctx.shadowColor = '#ef4444'; }
-            if(p.skin === 'radiant') { ctx.fillStyle = '#fef08a'; ctx.shadowBlur = 30; ctx.shadowColor = '#facc15'; }
             if(p.skin === 'abyssal') { ctx.fillStyle = '#000'; ctx.strokeStyle = '#7e22ce'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#4c1d95'; }
             if(p.skin === 'glitch') { if(Math.random()<0.2) ctx.translate(MathHelper.rand(-3,3), MathHelper.rand(-3,3)); }
 
-            if(p.skin === 'cyber' || p.skin === 'abyssal') {
-                ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            if(p.skin === 'cyber' || p.skin === 'wireframe' || p.skin === 'blueprint' || p.skin === 'abyssal') {
+                ctx.strokeStyle = p.skin === 'blueprint' ? '#fff' : (p.skin === 'wireframe' ? p.color : (p.skin === 'abyssal' ? '#7e22ce' : '#f0f')); ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.stroke();
             } else {
                 ctx.fillStyle = ctx.fillStyle !== '#000000' && p.skin !== 'default' ? ctx.fillStyle : p.color; 
                 ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.fill();
@@ -1240,65 +1610,39 @@
                 ctx.fillStyle = '#fff';
                 ctx.fillRect(-6, -4, 2, 2); ctx.fillRect(4, -6, 1.5, 1.5); ctx.fillRect(-2, 5, 2, 2); ctx.fillRect(6, 4, 1, 1);
             }
-            
             ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.radius * 0.4, 0, Math.PI * 2); ctx.fill();
             ctx.restore();
 
-            for(let d of state.drones) { ctx.fillStyle = '#cbd5e1'; ctx.beginPath(); MathHelper.drawPoly(ctx, d.x, d.y, 6, 3, state.gameTime*2); ctx.fill(); }
+            for(let d of state.drones) { ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : '#cbd5e1'; ctx.beginPath(); MathHelper.drawPoly(ctx, d.x, d.y, 6, 3, state.gameTime*2); p.skin === 'wireframe' ? ctx.stroke() : ctx.fill(); }
             for(let b of state.blades) {
                 ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.angle + Math.PI/2);
-                ctx.fillStyle = '#f43f5e'; ctx.beginPath(); ctx.moveTo(0, -b.length/2); ctx.lineTo(4, 0); ctx.lineTo(0, b.length/2); ctx.lineTo(-4, 0); ctx.fill();
+                ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : '#f43f5e'; ctx.beginPath(); ctx.moveTo(0, -b.length/2); ctx.lineTo(4, 0); ctx.lineTo(0, b.length/2); ctx.lineTo(-4, 0); p.skin === 'wireframe' ? ctx.stroke() : ctx.fill();
                 ctx.restore();
             }
 
             for(let proj of state.projectiles) {
-                ctx.fillStyle = proj.color; ctx.shadowBlur = 10; ctx.shadowColor = proj.color;
+                ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : proj.color; ctx.shadowBlur = 10; ctx.shadowColor = proj.color;
                 if(p.stats.weaponType === 'slash' && !proj.isEnemy) {
-                    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI*2); p.skin === 'wireframe' ? ctx.stroke() : ctx.fill();
                 } else {
-                    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2); ctx.fill(); 
+                    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2); p.skin === 'wireframe' ? ctx.stroke() : ctx.fill(); 
                 }
                 ctx.shadowBlur = 0;
             }
 
             for(let pt of state.particles) {
-                ctx.fillStyle = pt.color; ctx.strokeStyle = pt.color; ctx.globalAlpha = pt.life / (pt.maxLife || 1); ctx.beginPath(); 
+                ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : pt.color; ctx.strokeStyle = p.skin === 'blueprint' ? '#fff' : pt.color; ctx.globalAlpha = pt.life / (pt.maxLife || 1); ctx.beginPath(); 
                 
                 if (pt.type === 'spin') {
-                    ctx.save();
-                    ctx.translate(pt.x, pt.y);
-                    ctx.rotate(pt.angle + (1 - pt.life/pt.maxLife) * Math.PI * 2.5);
-                    ctx.beginPath();
-                    ctx.arc(0, 0, pt.radius, -Math.PI/3, Math.PI/3);
-                    ctx.lineWidth = 20 * Math.sin((pt.life/pt.maxLife) * Math.PI);
-                    ctx.lineCap = 'round';
-                    ctx.stroke();
-                    
-                    ctx.beginPath();
-                    ctx.arc(0, 0, pt.radius, Math.PI/3, Math.PI);
-                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (pt.life/pt.maxLife)})`;
-                    ctx.lineWidth = 8;
-                    ctx.stroke();
-                    ctx.restore();
-                    ctx.globalAlpha = 1.0;
-                    continue;
-                }
-                else if (pt.type === 'vertical_beam') {
-                    ctx.fillRect(pt.x - pt.radius, pt.y - vh, pt.radius * 2, vh);
-                    ctx.beginPath();
-                    ctx.ellipse(pt.x, pt.y, pt.radius, pt.radius * 0.5, 0, 0, Math.PI*2);
-                    ctx.fill();
-                    ctx.globalAlpha = 1.0;
-                    continue;
+                    ctx.save(); ctx.translate(pt.x, pt.y); ctx.rotate(pt.angle + (1 - pt.life/pt.maxLife) * Math.PI * 2.5);
+                    ctx.beginPath(); ctx.arc(0, 0, pt.radius, -Math.PI/3, Math.PI/3);
+                    ctx.lineWidth = 20 * Math.sin((pt.life/pt.maxLife) * Math.PI); ctx.lineCap = 'round'; ctx.stroke();
+                    ctx.beginPath(); ctx.arc(0, 0, pt.radius, Math.PI/3, Math.PI);
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (pt.life/pt.maxLife)})`; ctx.lineWidth = 8; ctx.stroke();
+                    ctx.restore(); ctx.globalAlpha = 1.0; continue;
                 }
                 else if(pt.isLine) { ctx.lineWidth = 1; ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.targetX, pt.targetY); ctx.stroke(); }
-                else if(pt.isPulse) { 
-                    ctx.lineWidth = 2; 
-                    let progress = 1 - (pt.life / (pt.maxLife || 0.3));
-                    let r = Math.max(0.1, pt.size * progress);
-                    ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); 
-                    ctx.stroke(); 
-                } 
+                else if(pt.isPulse) { ctx.lineWidth = 2; let progress = 1 - (pt.life / (pt.maxLife || 0.3)); let r = Math.max(0.1, pt.size * progress); ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); ctx.stroke(); } 
                 else { ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI*2); ctx.fill(); }
                 ctx.globalAlpha = 1.0;
             }
@@ -1307,69 +1651,130 @@
             for(let ft of state.floatingTexts) { ctx.font = `bold ${ft.size}px "JetBrains Mono"`; ctx.fillStyle = ft.color; ctx.globalAlpha = ft.life; ctx.fillText(ft.text, ft.x, ft.y); }
             ctx.globalAlpha = 1.0;
 
-            ctx.restore(); // Restore Map Clip
-            ctx.restore(); // Restore Camera translation
+            ctx.restore(); 
+            ctx.restore(); 
             
-            // Anomaly Overlays
-            if (state.worldEvent.active === "BLOOD_MOON") {
-                ctx.fillStyle = 'rgba(220, 38, 38, 0.15)';
-                ctx.fillRect(0, 0, vw, vh);
-            }
-            if (state.worldEvent.active === "TIME_DISTORTION") {
-                ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
-                ctx.fillRect(0, 0, vw, vh);
-            }
-            if (state.worldEvent.active === "BLACKOUT") {
-                ctx.save();
-                ctx.fillStyle = '#000';
-                ctx.fillRect(0, 0, vw, vh);
-                ctx.globalCompositeOperation = 'destination-out';
-                let screenPx = p.x - state.camera.x;
-                let screenPy = p.y - state.camera.y;
-                let grad = ctx.createRadialGradient(screenPx, screenPy, 100, screenPx, screenPy, 450);
-                grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
-                grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
-                ctx.fillStyle = grad;
-                ctx.beginPath(); ctx.arc(screenPx, screenPy, 450, 0, Math.PI*2); ctx.fill();
-                ctx.restore();
-            }
-            
-            if(p.dashCooldownTimer > 0) {
-                ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(vw/2 - 20, vh - 60, 40, 2);
-                ctx.fillStyle = '#fff'; ctx.fillRect(vw/2 - 20, vh - 60, 40 * (1 - p.dashCooldownTimer/p.stats.dashCooldown), 2);
-            }
+            if (state.worldEvent.active === "BLOOD_MOON") { ctx.fillStyle = 'rgba(220, 38, 38, 0.15)'; ctx.fillRect(0, 0, vw, vh); }
         }
 
         function gameOver() {
             state.status = 'GAMEOVER'; UI.hud.classList.add('hidden'); UI.tracker.classList.add('hidden'); UI.gameover.classList.remove('hidden');
+            const p = state.player;
             const m = Math.floor(state.gameTime / 60).toString().padStart(2, '0'); const s = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
-            document.getElementById('go-time').innerText = `${m}:${s}`; document.getElementById('go-kills').innerText = state.player.progression.kills;
-            document.getElementById('go-level').innerText = state.player.progression.level;
+            
+            document.getElementById('go-time').innerText = `${m}:${s}`; 
+            document.getElementById('go-kills').innerText = p.progression.kills;
+            document.getElementById('go-level').innerText = p.progression.level;
+            document.getElementById('go-bosses').innerText = p.runStats.bossKills || 0;
+            
+            document.getElementById('stat-dmg').innerText = Math.floor(p.runStats.damageDealt).toLocaleString();
+            document.getElementById('stat-dps').innerText = Math.floor(p.runStats.highestDps).toLocaleString();
+            document.getElementById('stat-taken').innerText = Math.floor(p.runStats.damageTaken).toLocaleString();
+            document.getElementById('stat-heal').innerText = Math.floor(p.runStats.healingReceived).toLocaleString();
+            document.getElementById('stat-proj').innerText = p.runStats.projectilesFired.toLocaleString();
+            document.getElementById('stat-crits').innerText = p.runStats.critsLanded.toLocaleString();
+            document.getElementById('stat-effects').innerText = p.runStats.statusEffectsApplied.toLocaleString();
+            document.getElementById('stat-syns').innerText = p.runStats.synergiesActivated.toLocaleString();
+            
+            document.getElementById('go-build-name').innerText = generateBuildName(p);
+
+            // Calculate and award meta shards safely
+            const bossKillsValid = isNaN(p.runStats.bossKills) ? 0 : p.runStats.bossKills;
+            const earnedShards = Math.floor(p.progression.kills / 10) + (bossKillsValid * 50) + (Math.floor(state.gameTime / 60) * 10);
+            document.getElementById('go-shards').innerText = `+${earnedShards}`;
+            
+            SaveSystem.awardShards(earnedShards);
+            
+            // Save cumulative stats
+            SaveSystem.data.stats.totalKills += p.progression.kills;
+            SaveSystem.data.stats.runsPlayed++;
+            SaveSystem.data.stats.bossesDefeated += bossKillsValid;
+            SaveSystem.data.stats.totalDamage += p.runStats.damageDealt;
+            SaveSystem.save(); // Local + Cloud Trigger
         }
 
         function startGame() {
-            const selectedChar = document.querySelector('.char-card.selected').getAttribute('data-char');
-            const selectedSkin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
-            state.reset(selectedChar, selectedSkin);
+            const selectedChar = document.querySelector('.char-card.selected');
+            const selectedSkin = document.querySelector('.skin-btn.selected');
+            
+            // Security check to prevent starting with locked items by HTML manipulation
+            const charId = selectedChar.getAttribute('data-char');
+            const skinId = selectedSkin.getAttribute('data-skin');
+            
+            if(!SaveSystem.data.unlockedChars.includes(charId) || !SaveSystem.data.unlockedSkins.includes(skinId)) return;
+
+            state.reset(charId, skinId);
             state.status = 'PLAYING';
             UI.menu.classList.add('hidden'); UI.gameover.classList.add('hidden'); UI.hud.classList.remove('hidden'); UI.hud.classList.add('flex');
             updateHUD(); updateTrackerUI();
         }
 
-        UI.charCards.forEach(card => { card.addEventListener('click', () => { UI.charCards.forEach(c => c.classList.remove('selected')); card.classList.add('selected'); }); });
-        UI.skinBtns.forEach(btn => { btn.addEventListener('click', () => { UI.skinBtns.forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); }); });
+        // Initialize Systems on load
+        SaveSystem.init();
+
+        // Auth Logic bindings
+        UI.btnCloseAuth.addEventListener('click', () => UI.modalAuth.classList.add('hidden'));
+        UI.btnLogin.addEventListener('click', () => {
+            const email = UI.authEmail.value; const pass = UI.authPass.value;
+            if(email && pass) CloudSync.login(email, pass);
+        });
+        UI.btnRegister.addEventListener('click', () => {
+            const email = UI.authEmail.value; const pass = UI.authPass.value;
+            if(email && pass) CloudSync.register(email, pass);
+        });
+
+        // Menu UI Event Listeners for Locking/Unlocking
+        UI.charCards.forEach(card => { 
+            card.addEventListener('click', () => { 
+                const id = card.getAttribute('data-char');
+                const cost = parseInt(card.getAttribute('data-cost'));
+                
+                if (SaveSystem.data.unlockedChars.includes(id)) {
+                    // It's unlocked, just select it
+                    UI.charCards.forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
+                    card.classList.add('selected'); 
+                } else {
+                    // Try to unlock
+                    if(SaveSystem.unlockClass(id, cost)) {
+                        UI.charCards.forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
+                        card.classList.add('selected'); 
+                    } else {
+                        card.classList.add('shake');
+                        setTimeout(() => card.classList.remove('shake'), 300);
+                    }
+                }
+            }); 
+        });
+
+        UI.skinBtns.forEach(btn => { 
+            btn.addEventListener('click', () => { 
+                const id = btn.getAttribute('data-skin');
+                const cost = parseInt(btn.getAttribute('data-cost'));
+
+                if (SaveSystem.data.unlockedSkins.includes(id)) {
+                    UI.skinBtns.forEach(b => { if(!b.classList.contains('locked-item')) b.classList.remove('selected')}); 
+                    btn.classList.add('selected'); 
+                } else {
+                    const msg = document.getElementById('skin-msg');
+                    if(SaveSystem.unlockSkin(id, cost)) {
+                        UI.skinBtns.forEach(b => { if(!b.classList.contains('locked-item')) b.classList.remove('selected')}); 
+                        btn.classList.add('selected'); 
+                    } else {
+                        btn.classList.add('shake');
+                        msg.classList.remove('opacity-0');
+                        setTimeout(() => { btn.classList.remove('shake'); msg.classList.add('opacity-0'); }, 1000);
+                    }
+                }
+            }); 
+        });
 
         UI.btnShowLog.addEventListener('click', () => { UI.modalUpdateLog.classList.remove('hidden'); });
         UI.btnCloseLog.addEventListener('click', () => { UI.modalUpdateLog.classList.add('hidden'); });
-
         UI.menu.querySelector('#btn-start').addEventListener('click', startGame);
         UI.gameover.querySelector('#btn-restart').addEventListener('click', startGame);
-        
         UI.gameover.querySelector('#btn-mainmenu').addEventListener('click', () => {
-            UI.gameover.classList.add('hidden');
-            UI.menu.classList.remove('hidden');
-            state.status = 'MENU';
-            ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh);
+            UI.gameover.classList.add('hidden'); UI.menu.classList.remove('hidden'); state.status = 'MENU';
+            ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh); 
         });
 
         let lastTime = 0;
