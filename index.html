@@ -358,17 +358,36 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Firebase Configuration injected by environment
+        // ============================================================================
+        // 🌐 GITHUB PAGES MULTIPLAYER CONFIGURATION 🌐
+        // ============================================================================
+        const MY_FIREBASE_CONFIG = {
+          apiKey: "AIzaSyD0UDtrpSNGCN4pN4GXt0dQQZSuq76n6cI",
+          authDomain: "shapes-22dc1.firebaseapp.com",
+          projectId: "shapes-22dc1",
+          storageBucket: "shapes-22dc1.firebasestorage.app",
+          messagingSenderId: "662824269651",
+          appId: "1:662824269651:web:0d67a4a23b7f32a3fed3a6",
+          measurementId: "G-DF833TXHV6"
+        };
+        // ============================================================================
+
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'battle-shapes-v5';
-        const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
         
         let app, db, auth;
         let isOffline = true;
 
-        if (firebaseConfigStr) {
+        // Check if we are in the chat environment OR if the user provided their own config
+        let activeConfig = null;
+        if (typeof __firebase_config !== 'undefined') {
+            activeConfig = JSON.parse(__firebase_config); // Uses chat database
+        } else if (MY_FIREBASE_CONFIG) {
+            activeConfig = MY_FIREBASE_CONFIG; // Uses your GitHub Pages database
+        }
+
+        if (activeConfig) {
             try {
-                const config = JSON.parse(firebaseConfigStr);
-                app = initializeApp(config);
+                app = initializeApp(activeConfig);
                 db = getFirestore(app);
                 auth = getAuth(app);
                 isOffline = false;
@@ -416,7 +435,7 @@
                     if (typeof __initial_auth_token !== 'undefined') {
                         await signInWithCustomToken(auth, __initial_auth_token);
                     } else {
-                        await signInAnonymously(auth);
+                        await signInAnonymously(auth); // Used for GitHub Pages config fallback
                     }
                 } catch (e) {
                     console.error("Auth init failed", e);
@@ -546,7 +565,7 @@
             },
 
             async host() {
-                if (isOffline) { showSysMsg("CO-OP REQUIRES CLOUD CONNECTION", "text-yellow-400", "bg-yellow-500/10"); return; }
+                if (isOffline) { showSysMsg("CO-OP REQUIRES FIREBASE CONFIG (SEE CODE)", "text-yellow-400", "bg-yellow-500/10"); return; }
                 if (!currentUser) return;
                 const code = this.generateCode();
                 const ref = this.getDocRef(code);
@@ -580,7 +599,7 @@
             },
 
             async join(code) {
-                if (isOffline) { showSysMsg("CO-OP REQUIRES CLOUD CONNECTION", "text-yellow-400", "bg-yellow-500/10"); return; }
+                if (isOffline) { showSysMsg("CO-OP REQUIRES FIREBASE CONFIG (SEE CODE)", "text-yellow-400", "bg-yellow-500/10"); return; }
                 if (!currentUser || !code) return;
                 code = code.toUpperCase();
                 const ref = this.getDocRef(code);
@@ -751,7 +770,7 @@
 
         // UI Bindings for Party
         document.getElementById('btn-open-party').addEventListener('click', () => {
-            if (isOffline) { showSysMsg("CO-OP REQUIRES CLOUD CONNECTION", "text-yellow-400", "bg-yellow-500/10"); return; }
+            if (isOffline) { showSysMsg("CO-OP REQUIRES FIREBASE CONFIG (SEE CODE)", "text-yellow-400", "bg-yellow-500/10"); return; }
             if (!currentUser) { showSysMsg("MUST CONNECT TO MAINFRAME FIRST", "text-yellow-400", "bg-yellow-500/10"); return; }
             document.getElementById('modal-party').classList.remove('hidden');
         });
@@ -1984,3 +2003,6 @@
     </script>
 </body>
 </html>
+
+
+but can it sync movement and sync killing shapes? and all other data?
