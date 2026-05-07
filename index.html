@@ -73,7 +73,7 @@
     <!-- Game Canvas -->
     <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
 
-    <!-- Connection Status (replaces explicit Auth modal for a smoother experience) -->
+    <!-- Connection Status -->
     <div id="sys-msg-container" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2"></div>
 
     <!-- Party / Multiplayer Modal -->
@@ -360,11 +360,24 @@
 
         // Firebase Configuration injected by environment
         const appId = typeof __app_id !== 'undefined' ? __app_id : 'battle-shapes-v5';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { projectId: 'demo-project' };
+        const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
         
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+        let app, db, auth;
+        let isOffline = true;
+
+        if (firebaseConfigStr) {
+            try {
+                const config = JSON.parse(firebaseConfigStr);
+                app = initializeApp(config);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                isOffline = false;
+            } catch (e) {
+                console.error("Firebase init error. Falling back to Local Mode:", e);
+                isOffline = true;
+            }
+        }
+        
         let currentUser = null;
 
         // UI Helpers
@@ -388,6 +401,16 @@
         const SaveSystem = {
             data: { shards: 0, unlockedChars: ['ronin', 'lancer', 'bruiser'], unlockedSkins: ['default'], stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 } },
             async init() {
+                this.loadLocal();
+
+                if (isOffline) {
+                    const dot = document.getElementById('sys-auth-dot');
+                    const text = document.getElementById('sys-auth-text');
+                    if(dot) { dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-yellow-500'); }
+                    if(text) text.innerText = "LOCAL MODE";
+                    return;
+                }
+
                 // Determine Auth Strategy
                 try {
                     if (typeof __initial_auth_token !== 'undefined') {
@@ -408,15 +431,30 @@
                     if (user) {
                         dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
                         text.innerText = user.isAnonymous ? "LINKED: GUEST" : "LINKED: CLOUD";
-                        await this.load();
+                        await this.loadCloud();
                     } else {
                         dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
                         text.innerText = "OFFLINE";
                     }
                 });
             },
-            async load() {
-                if (!currentUser) return;
+            loadLocal() {
+                try {
+                    const saved = localStorage.getItem('bots_save_v5');
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        this.data = { ...this.data, ...parsed, stats: { ...this.data.stats, ...(parsed.stats || {}) } };
+                    }
+                } catch(e) {}
+                this.updateMenuUI();
+            },
+            saveLocal() {
+                try {
+                    localStorage.setItem('bots_save_v5', JSON.stringify(this.data));
+                } catch(e) {}
+            },
+            async loadCloud() {
+                if (!currentUser || isOffline) return;
                 try {
                     const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
                     const snap = await getDoc(saveRef);
@@ -428,13 +466,15 @@
                         await setDoc(saveRef, this.data);
                     }
                     this.updateMenuUI();
+                    this.saveLocal(); // sync local to cloud
                     showSysMsg("DATA STREAM SYNCED", "text-emerald-400", "bg-emerald-500/10 border-emerald-500/20");
                 } catch (e) {
                     console.error("Load failed", e);
                 }
             },
             async save() {
-                if (!currentUser) return;
+                this.saveLocal();
+                if (!currentUser || isOffline) return;
                 try {
                     const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
                     await setDoc(saveRef, this.data, { merge: true });
@@ -506,6 +546,7 @@
             },
 
             async host() {
+                if (isOffline) { showSysMsg("CO-OP REQUIRES CLOUD CONNECTION", "text-yellow-400", "bg-yellow-500/10"); return; }
                 if (!currentUser) return;
                 const code = this.generateCode();
                 const ref = this.getDocRef(code);
@@ -539,6 +580,7 @@
             },
 
             async join(code) {
+                if (isOffline) { showSysMsg("CO-OP REQUIRES CLOUD CONNECTION", "text-yellow-400", "bg-yellow-500/10"); return; }
                 if (!currentUser || !code) return;
                 code = code.toUpperCase();
                 const ref = this.getDocRef(code);
@@ -583,11 +625,10 @@
             },
 
             async leave() {
-                if (!this.id || !currentUser) return;
+                if (!this.id || !currentUser || isOffline) return;
                 const ref = this.getDocRef(this.id);
                 try {
                     if (this.isHost) {
-                        // If host leaves lobby, destroy it. (In a real app, maybe reassign host).
                         await updateDoc(ref, { status: 'CLOSED' });
                     } else {
                         await updateDoc(ref, { [`players.${currentUser.uid}`]: deleteField() });
@@ -616,6 +657,7 @@
 
             startListening() {
                 if (this.unsub) this.unsub();
+                if (isOffline) return;
                 const ref = this.getDocRef(this.id);
                 
                 this.unsub = onSnapshot(ref, (snap) => {
@@ -646,13 +688,13 @@
                     }
 
                     // Handle Game Start
-                    if (this.data.status === 'PLAYING' && state.status === 'MENU') {
+                    if (this.data.status === 'PLAYING' && typeof state !== 'undefined' && state.status === 'MENU') {
                         document.getElementById('modal-party').classList.add('hidden');
                         startGame(this.data.seed); // Pass shared seed
                     }
 
                     // Update remote players in game
-                    if (state.status === 'PLAYING') {
+                    if (typeof state !== 'undefined' && state.status === 'PLAYING') {
                         this.remotePlayers = {};
                         for (let uid in this.data.players) {
                             if (uid !== currentUser.uid) {
@@ -667,14 +709,14 @@
             },
 
             async triggerStart() {
-                if (!this.isHost || !this.id) return;
+                if (!this.isHost || !this.id || isOffline) return;
                 try {
                     await updateDoc(this.getDocRef(this.id), { status: 'PLAYING' });
                 } catch(e) { console.error("Start error", e); }
             },
 
             startSyncing() {
-                if (!this.id || !currentUser) return;
+                if (!this.id || !currentUser || isOffline) return;
                 // Sync position every 150ms to save Firestore reads/writes while keeping it somewhat smooth
                 this.syncInterval = setInterval(async () => {
                     if (state.status !== 'PLAYING') return;
@@ -709,6 +751,7 @@
 
         // UI Bindings for Party
         document.getElementById('btn-open-party').addEventListener('click', () => {
+            if (isOffline) { showSysMsg("CO-OP REQUIRES CLOUD CONNECTION", "text-yellow-400", "bg-yellow-500/10"); return; }
             if (!currentUser) { showSysMsg("MUST CONNECT TO MAINFRAME FIRST", "text-yellow-400", "bg-yellow-500/10"); return; }
             document.getElementById('modal-party').classList.remove('hidden');
         });
@@ -1884,7 +1927,7 @@
             updateHUD();
             updateTrackerUI();
             
-            if (Party.id) {
+            if (Party.id && !isOffline) {
                 Party.startSyncing();
             }
         }
