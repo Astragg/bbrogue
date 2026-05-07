@@ -5,11 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Battle of the Shapes: Co-op Protocol</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- PeerJS for WebRTC Peer-to-Peer Multiplayer -->
-    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Inter', sans-serif; user-select: none; }
+        body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Inter', sans-serif; user-select: none; touch-action: none; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
         
         .glass-panel { 
@@ -64,6 +63,7 @@
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         
         .radial-bg { background: radial-gradient(circle at 50% 0%, rgba(30,30,40,1) 0%, rgba(5,5,5,1) 70%); }
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
 
         /* Party UI Animations */
         @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.2); } 50% { box-shadow: 0 0 25px rgba(168, 85, 247, 0.6); } }
@@ -75,17 +75,17 @@
     <!-- Game Canvas -->
     <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
 
-    <!-- Connection Status (replaces explicit Auth modal for a smoother experience) -->
-    <div id="sys-msg-container" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2"></div>
+    <!-- Connection Status -->
+    <div id="sys-msg-container" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2 w-[90%] md:w-auto text-center"></div>
 
     <!-- Party / Multiplayer Modal -->
-    <div id="modal-party" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
-        <div class="glass-panel w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10 p-8 relative">
+    <div id="modal-party" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity p-4">
+        <div class="glass-panel w-full max-w-md rounded-2xl flex flex-col shadow-2xl border-white/10 p-6 md:p-8 relative max-h-[90vh] overflow-y-auto">
             <button id="btn-close-party" class="absolute top-4 right-6 text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
             
             <div id="party-view-select" class="block">
                 <h2 class="text-2xl font-black tracking-tight text-white mb-2">CO-OP PROTOCOL</h2>
-                <p class="text-sm text-slate-400 mb-8 font-mono">Establish a secure link with other survivors. Sync data streams to fight together.</p>
+                <p class="text-sm text-slate-400 mb-8 font-mono">Establish a secure Peer-to-Peer link with other survivors.</p>
                 
                 <div class="space-y-4">
                     <button id="btn-create-party" class="w-full py-4 bg-purple-600/20 text-purple-400 border border-purple-500/30 font-bold tracking-widest text-sm rounded-xl hover:bg-purple-600/40 transition-all">HOST NEW SESSION</button>
@@ -111,9 +111,7 @@
                 <p class="text-xs text-slate-400 mb-6 font-mono" id="lobby-status-text">Awaiting Host...</p>
                 
                 <div class="flex-1 bg-black/40 rounded-xl border border-white/5 p-4 mb-6 min-h-[150px]">
-                    <ul id="lobby-player-list" class="space-y-3 font-mono text-sm">
-                        <!-- Populated by JS -->
-                    </ul>
+                    <ul id="lobby-player-list" class="space-y-3 font-mono text-sm"></ul>
                 </div>
 
                 <div class="flex gap-3">
@@ -125,113 +123,125 @@
     </div>
 
     <!-- Main Menu -->
-    <div id="screen-menu" class="absolute inset-0 z-10 flex flex-col radial-bg pointer-events-auto">
+    <div id="screen-menu" class="absolute inset-0 z-10 flex flex-col radial-bg pointer-events-auto overflow-y-auto">
         
         <!-- Top Nav Bar -->
-        <div class="absolute top-0 left-0 w-full p-6 flex justify-between items-start z-20">
+        <div class="w-full p-4 md:p-6 flex flex-col md:flex-row justify-between items-center z-20 gap-4 shrink-0">
             <!-- Connection Status -->
-            <div class="glass-panel px-4 py-2 rounded-lg border-white/10 shadow-lg flex items-center gap-3">
+            <div class="glass-panel px-4 py-2 rounded-lg border-white/10 shadow-lg flex items-center gap-3 w-full md:w-auto justify-center">
                 <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse" id="sys-auth-dot"></div>
                 <div class="font-mono text-xs tracking-widest text-slate-300" id="sys-auth-text">OFFLINE</div>
             </div>
 
-            <div class="flex gap-4">
+            <div class="flex gap-4 w-full md:w-auto justify-between md:justify-end">
                 <!-- Multiplayer Toggle -->
-                <button id="btn-open-party" class="glass-panel px-6 py-3 rounded-xl border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)] flex items-center gap-3 hover:bg-white/5 transition-colors group">
-                    <svg class="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-                    <span class="font-mono font-bold text-sm tracking-widest text-purple-300" id="btn-party-text">CO-OP</span>
+                <button id="btn-open-party" class="glass-panel px-4 md:px-6 py-2 md:py-3 rounded-xl border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)] flex items-center gap-2 hover:bg-white/5 transition-colors group">
+                    <svg class="w-4 h-4 md:w-5 md:h-5 text-purple-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span class="font-mono font-bold text-xs md:text-sm tracking-widest text-purple-300" id="btn-party-text">CO-OP</span>
                 </button>
 
                 <!-- Currency Display -->
-                <div class="glass-panel px-6 py-3 rounded-xl border-sky-500/30 shadow-[0_0_20px_rgba(56,189,248,0.1)] flex items-center gap-3">
-                    <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
+                <div class="glass-panel px-4 md:px-6 py-2 md:py-3 rounded-xl border-sky-500/30 shadow-[0_0_20px_rgba(56,189,248,0.1)] flex items-center gap-2">
+                    <svg class="w-4 h-4 md:w-5 md:h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
                     <div class="flex flex-col">
-                        <span class="text-[10px] font-mono text-sky-400/70 tracking-widest uppercase leading-none">Data Shards</span>
-                        <span class="font-mono font-bold text-lg leading-none" id="menu-shards-display">0</span>
+                        <span class="text-[8px] md:text-[10px] font-mono text-sky-400/70 tracking-widest uppercase leading-none">Data Shards</span>
+                        <span class="font-mono font-bold text-base md:text-lg leading-none" id="menu-shards-display">0</span>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="w-full flex-1 flex flex-col md:flex-row max-w-7xl mx-auto h-full p-6 md:p-12 gap-12 pt-28 md:pt-20">
+        <div class="w-full flex-1 flex flex-col lg:flex-row max-w-7xl mx-auto h-full p-4 md:p-8 lg:p-12 gap-8 lg:gap-12 pb-20">
             <!-- Left Panel: Title -->
-            <div class="w-full md:w-1/3 flex flex-col justify-center relative">
-                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs font-mono text-sky-400 w-max mb-6">SYSTEM v5.0.0 MULTIPLAYER</div>
-                <h1 class="text-5xl md:text-7xl font-black text-white mb-4 tracking-tighter leading-none">
+            <div class="w-full lg:w-1/3 flex flex-col justify-start lg:justify-center relative shrink-0">
+                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-[10px] md:text-xs font-mono text-sky-400 w-max mb-4 md:mb-6">SYSTEM v6.0.0 ONLINE</div>
+                <h1 class="text-4xl md:text-6xl lg:text-7xl font-black text-white mb-2 md:mb-4 tracking-tighter leading-none">
                     BATTLE<br>OF THE<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-500">SHAPES</span>
                 </h1>
-                <p class="text-slate-400 font-medium text-sm mb-12 leading-relaxed max-w-sm">Survive the anomaly. Sync with allies. Slay the bosses. Never stop moving.</p>
+                <p class="text-slate-400 font-medium text-xs md:text-sm mb-4 md:mb-12 leading-relaxed max-w-sm">Survive the anomaly. Sync with allies. Slay the bosses. Never stop moving.</p>
             </div>
 
             <!-- Right Panel: Selection -->
-            <div class="w-full md:w-2/3 flex flex-col justify-center overflow-y-auto pb-10 custom-scrollbar pr-4">
+            <div class="w-full lg:w-2/3 flex flex-col justify-start lg:justify-center">
                 
-                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">1. Draft Class</p>
+                <p class="text-slate-500 font-mono text-[10px] md:text-xs tracking-widest font-bold mb-3 md:mb-4 uppercase">1. Draft Class</p>
                 
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-10 shrink-0" id="class-grid">
-                    <!-- Base Classes -->
-                    <div class="char-card selected glass-panel rounded-xl p-4 cursor-pointer" data-char="ronin" data-cost="0">
-                        <h3 class="text-lg font-bold text-rose-400 mb-1">RONIN</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Massive 360° spinning slash.</p>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 mb-8 md:mb-10 shrink-0" id="class-grid">
+                    <!-- Base Classes (FREE) -->
+                    <div class="char-card selected glass-panel rounded-xl p-3 md:p-4 cursor-pointer" data-char="ronin" data-cost="0">
+                        <h3 class="text-base md:text-lg font-bold text-rose-400 mb-1">RONIN</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Melee. Massive 360° spinning slash.</p>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="lancer" data-cost="0">
-                        <h3 class="text-lg font-bold text-teal-400 mb-1">LANCER</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Rapid piercing forward thrusts.</p>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer" data-char="lancer" data-cost="0">
+                        <h3 class="text-base md:text-lg font-bold text-teal-400 mb-1">LANCER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Melee. Rapid piercing forward thrusts.</p>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="bruiser" data-cost="0">
-                        <h3 class="text-lg font-bold text-orange-400 mb-1">BRUISER</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Close-range 3-shot spread.</p>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer" data-char="bruiser" data-cost="0">
+                        <h3 class="text-base md:text-lg font-bold text-orange-400 mb-1">BRUISER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Ranged. Close-range 3-shot spread.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer" data-char="sniper" data-cost="0">
+                        <h3 class="text-base md:text-lg font-bold text-cyan-400 mb-1">SNIPER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Ranged. High damage, infinite pierce.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer" data-char="bomber" data-cost="0">
+                        <h3 class="text-base md:text-lg font-bold text-red-500 mb-1">BOMBER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Ranged. Slow massive explosive shots.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer" data-char="seeker" data-cost="0">
+                        <h3 class="text-base md:text-lg font-bold text-pink-400 mb-1">SEEKER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Ranged. Weak shots with massive tracking.</p>
                     </div>
                     
                     <!-- Advanced Classes (Costs 250) -->
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="paladin" data-cost="250">
-                        <h3 class="text-lg font-bold text-yellow-500 mb-1">PALADIN</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Close-range pulsing AoE.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">250 Shards</span></div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="paladin" data-cost="250">
+                        <h3 class="text-base md:text-lg font-bold text-yellow-500 mb-1">PALADIN</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Melee. Close-range pulsing AoE.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">250 Shards</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="ranger" data-cost="250">
-                        <h3 class="text-lg font-bold text-emerald-400 mb-1">MARINE</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Extreme fire-rate auto-rifle.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">250 Shards</span></div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="ranger" data-cost="250">
+                        <h3 class="text-base md:text-lg font-bold text-emerald-400 mb-1">MARINE</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Ranged. Extreme fire-rate auto-rifle.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">250 Shards</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="channeler" data-cost="250">
-                        <h3 class="text-lg font-bold text-purple-400 mb-1">CHANNELER</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Auto-locking laser beam.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">250 Shards</span></div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="channeler" data-cost="250">
+                        <h3 class="text-base md:text-lg font-bold text-purple-400 mb-1">CHANNELER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Ranged. Auto-locking laser beam.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">250 Shards</span></div>
                     </div>
                     
                     <!-- Gimmick Classes (Costs 500) -->
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="trapper" data-cost="500">
-                        <h3 class="text-lg font-bold text-lime-400 mb-1">TRAPPER</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Calls orbital laser strikes.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">500 Shards</span></div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="trapper" data-cost="500">
+                        <h3 class="text-base md:text-lg font-bold text-lime-400 mb-1">TRAPPER</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Gimmick. Calls orbital laser strikes.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">500 Shards</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="architect" data-cost="500">
-                        <h3 class="text-lg font-bold text-zinc-300 mb-1">ARCHITECT</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Starts with Drones & Shields.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">500 Shards</span></div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="architect" data-cost="500">
+                        <h3 class="text-base md:text-lg font-bold text-zinc-300 mb-1">ARCHITECT</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Gimmick. Starts with Drones & Shields.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">500 Shards</span></div>
                     </div>
-                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="alchemist" data-cost="500">
-                        <h3 class="text-lg font-bold text-cyan-400 mb-1">ALCHEMIST</h3>
-                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Bouncing multi-status orbs.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">500 Shards</span></div>
+                    <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="alchemist" data-cost="500">
+                        <h3 class="text-base md:text-lg font-bold text-blue-400 mb-1">ALCHEMIST</h3>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Gimmick. Bouncing multi-status orbs.</p>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">500 Shards</span></div>
                     </div>
                 </div>
 
-                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase flex justify-between">
+                <p class="text-slate-500 font-mono text-[10px] md:text-xs tracking-widest font-bold mb-3 md:mb-4 uppercase flex justify-between">
                     <span>2. Select Aesthetic</span>
                     <span id="skin-msg" class="text-rose-400 transition-opacity opacity-0">Not enough Shards!</span>
                 </p>
-                <div class="flex flex-wrap gap-2 mb-10 shrink-0" id="skin-grid">
-                    <button class="skin-btn selected px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="default" data-cost="0">Default</button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="cyber" data-cost="150"><span>Cyber</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">150</span></button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="wireframe" data-cost="200"><span>Wireframe</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">200</span></button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="blueprint" data-cost="200"><span>Blueprint</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">200</span></button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="cosmic" data-cost="400"><span>Cosmic</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">400</span></button>
-                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono locked-item flex gap-2 items-center" data-skin="abyssal" data-cost="600"><span>Abyssal</span> <span class="text-sky-300 text-[10px] bg-black/50 px-1 rounded">600</span></button>
+                <div class="flex flex-wrap gap-2 mb-8 md:mb-10 shrink-0" id="skin-grid">
+                    <button class="skin-btn selected px-3 py-1.5 md:px-4 md:py-2 border border-white/10 rounded-full bg-white/5 text-[10px] md:text-xs font-mono" data-skin="default" data-cost="0">Default</button>
+                    <button class="skin-btn px-3 py-1.5 md:px-4 md:py-2 border border-white/10 rounded-full bg-white/5 text-[10px] md:text-xs font-mono locked-item flex gap-2 items-center" data-skin="cyber" data-cost="150"><span>Cyber</span> <span class="text-sky-300 text-[8px] md:text-[10px] bg-black/50 px-1 rounded">150</span></button>
+                    <button class="skin-btn px-3 py-1.5 md:px-4 md:py-2 border border-white/10 rounded-full bg-white/5 text-[10px] md:text-xs font-mono locked-item flex gap-2 items-center" data-skin="wireframe" data-cost="200"><span>Wireframe</span> <span class="text-sky-300 text-[8px] md:text-[10px] bg-black/50 px-1 rounded">200</span></button>
+                    <button class="skin-btn px-3 py-1.5 md:px-4 md:py-2 border border-white/10 rounded-full bg-white/5 text-[10px] md:text-xs font-mono locked-item flex gap-2 items-center" data-skin="blueprint" data-cost="200"><span>Blueprint</span> <span class="text-sky-300 text-[8px] md:text-[10px] bg-black/50 px-1 rounded">200</span></button>
+                    <button class="skin-btn px-3 py-1.5 md:px-4 md:py-2 border border-white/10 rounded-full bg-white/5 text-[10px] md:text-xs font-mono locked-item flex gap-2 items-center" data-skin="cosmic" data-cost="400"><span>Cosmic</span> <span class="text-sky-300 text-[8px] md:text-[10px] bg-black/50 px-1 rounded">400</span></button>
+                    <button class="skin-btn px-3 py-1.5 md:px-4 md:py-2 border border-white/10 rounded-full bg-white/5 text-[10px] md:text-xs font-mono locked-item flex gap-2 items-center" data-skin="abyssal" data-cost="600"><span>Abyssal</span> <span class="text-sky-300 text-[8px] md:text-[10px] bg-black/50 px-1 rounded">600</span></button>
                 </div>
 
-                <button id="btn-start" class="w-full py-5 bg-white text-black hover:bg-sky-100 font-bold tracking-widest text-lg rounded-xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] flex justify-center items-center gap-3 active:scale-[0.98]">
+                <button id="btn-start" class="w-full py-4 md:py-5 bg-white text-black hover:bg-sky-100 font-bold tracking-widest text-base md:text-lg rounded-xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] flex justify-center items-center gap-3 active:scale-[0.98]">
                     INITIATE SOLO SEQUENCE &rarr;
                 </button>
             </div>
@@ -239,117 +249,123 @@
     </div>
 
     <!-- HUD -->
-    <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden flex-col justify-between p-6 md:p-10">
+    <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden flex-col justify-between p-4 md:p-10">
         <div class="flex justify-between items-start w-full relative">
             
-            <div id="boss-hp-container" class="absolute top-0 left-1/2 transform -translate-x-1/2 w-full max-w-lg hidden flex-col items-center transition-all">
-                <span class="font-mono font-bold text-xs text-red-500 mb-2 tracking-[0.2em]" id="boss-name">ANOMALY</span>
-                <div class="w-full h-2 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-red-900/30">
+            <div id="boss-hp-container" class="absolute top-12 md:top-0 left-1/2 transform -translate-x-1/2 w-3/4 max-w-lg hidden flex-col items-center transition-all">
+                <span class="font-mono font-bold text-[10px] md:text-xs text-red-500 mb-1 md:mb-2 tracking-[0.2em]" id="boss-name">ANOMALY</span>
+                <div class="w-full h-1.5 md:h-2 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-red-900/30 shadow-[0_0_15px_rgba(220,38,38,0.5)]">
                     <div id="boss-hp-fill" class="h-full bg-red-500 w-full transition-all duration-100"></div>
                 </div>
             </div>
 
-            <div class="flex flex-col gap-3 w-1/3 max-w-[250px]">
-                <div class="flex items-center gap-4">
-                    <span class="font-mono font-bold text-sm text-sky-400 w-12" id="hud-level">LVL 1</span>
-                    <div class="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
-                        <div id="hud-xp-fill" class="h-full bg-sky-400 w-0 transition-all duration-300"></div>
+            <div class="flex flex-col gap-2 md:gap-3 w-[45%] md:w-1/3 max-w-[250px]">
+                <div class="flex items-center gap-2 md:gap-4">
+                    <span class="font-mono font-bold text-sm md:text-base text-sky-400 w-16" id="hud-level">LVL 1</span>
+                    <div class="flex-1 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
+                        <div id="hud-xp-fill" class="h-full bg-sky-400 w-0 transition-all duration-300 shadow-[0_0_10px_rgba(56,189,248,0.5)]"></div>
                     </div>
                 </div>
-                <div class="flex items-center gap-4">
-                    <span class="font-mono font-bold text-xs text-emerald-400 w-12">HP</span>
-                    <div class="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
+                <div class="flex items-center gap-2 md:gap-4">
+                    <span class="font-mono font-bold text-[10px] md:text-xs text-emerald-400 w-16 text-right pr-2">HP</span>
+                    <div class="flex-1 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
                         <div id="hud-hp-fill" class="h-full bg-emerald-400 w-full transition-all duration-300"></div>
                     </div>
                 </div>
-                <div class="flex items-center gap-4 hidden" id="hud-shield-container">
-                    <span class="font-mono font-bold text-xs text-blue-400 w-12">SHIELD</span>
-                    <div class="flex-1 h-1 bg-white/10 rounded-full overflow-hidden relative">
+                <div class="flex items-center gap-2 md:gap-4 hidden" id="hud-shield-container">
+                    <span class="font-mono font-bold text-[10px] md:text-xs text-blue-400 w-16 text-right pr-2">SHIELD</span>
+                    <div class="flex-1 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
                         <div id="hud-shield-fill" class="h-full bg-blue-400 w-0 transition-all duration-300"></div>
                     </div>
                 </div>
-                <div class="text-[10px] font-mono text-slate-500 mt-2 flex flex-col items-start gap-1">
-                    <div class="flex items-center gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">U</kbd> Modules</div>
-                    <div class="flex items-center gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">SPACE</kbd> Dash</div>
+                <div class="flex items-center gap-2 md:gap-4" id="hud-dash-container">
+                    <span class="font-mono font-bold text-[10px] md:text-xs text-slate-400 w-16 text-right pr-2">DASH</span>
+                    <div class="flex-1 h-1 bg-white/10 rounded-full overflow-hidden relative">
+                        <div id="hud-dash-fill" class="h-full bg-slate-300 w-full transition-all duration-100"></div>
+                    </div>
+                </div>
+                <div class="text-[8px] md:text-[10px] font-mono text-slate-500 mt-1 md:mt-2 flex flex-col items-start gap-1">
+                    <div class="flex items-center gap-1 md:gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">U</kbd> Modules</div>
+                    <div class="flex items-center gap-1 md:gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">SPACE</kbd> Dash</div>
                 </div>
             </div>
             
             <div class="flex flex-col items-end gap-1">
-                <div class="font-mono font-light text-4xl text-white tracking-tighter" id="hud-time">00:00</div>
-                <div class="font-mono text-xs text-slate-400 uppercase tracking-widest mt-1" id="hud-kills">0 KILLS</div>
-                <div class="font-mono font-bold text-xs text-fuchsia-400 mt-2 px-3 py-1 bg-fuchsia-500/10 rounded-full border border-fuchsia-500/20 hidden" id="hud-combo">COMBO x1.0</div>
+                <div class="font-mono font-light text-3xl md:text-4xl text-white tracking-tighter" id="hud-time">00:00</div>
+                <div class="font-mono text-[10px] md:text-xs text-slate-400 uppercase tracking-widest mt-1" id="hud-kills">0 KILLS</div>
+                <div class="font-mono font-bold text-[10px] md:text-xs text-fuchsia-400 mt-2 px-2 md:px-3 py-1 bg-fuchsia-500/10 rounded-full border border-fuchsia-500/20 hidden" id="hud-combo">COMBO x1.0</div>
                 
                 <!-- Party Tracker HUD -->
-                <div id="hud-party-list" class="mt-4 flex flex-col items-end gap-2"></div>
+                <div id="hud-party-list" class="mt-2 md:mt-4 flex flex-col items-end gap-1 md:gap-2 w-full pointer-events-auto"></div>
             </div>
         </div>
     </div>
 
     <!-- Upgrade Tracker Sidebar -->
-    <div id="screen-tracker" class="absolute right-0 top-24 bottom-10 w-72 glass-panel border-r-0 hidden flex-col p-6 rounded-l-2xl z-15 shadow-2xl transform translate-x-full transition-transform duration-500 pointer-events-auto">
-        <h2 class="font-mono font-bold text-xs text-sky-400 tracking-widest mb-4 border-b border-white/10 pb-4 flex justify-between items-center">
-            ACTIVE MODULES <span class="text-slate-500 text-[10px] font-normal">Press U</span>
+    <div id="screen-tracker" class="absolute right-0 top-24 bottom-10 w-48 md:w-72 glass-panel border-r-0 hidden flex-col p-4 md:p-6 rounded-l-2xl z-15 shadow-2xl transform translate-x-full transition-transform duration-500 pointer-events-auto max-h-[70vh]">
+        <h2 class="font-mono font-bold text-[10px] md:text-xs text-sky-400 tracking-widest mb-4 border-b border-white/10 pb-4 flex justify-between items-center">
+            MODULES <span class="text-slate-500 text-[8px] md:text-[10px] font-normal">Press U</span>
         </h2>
-        <div id="tracker-list" class="flex-1 overflow-y-auto pr-2 space-y-3 font-mono text-xs custom-scrollbar text-slate-300"></div>
+        <div id="tracker-list" class="flex-1 overflow-y-auto pr-2 space-y-2 md:space-y-3 font-mono text-[10px] md:text-xs custom-scrollbar text-slate-300"></div>
     </div>
 
     <!-- Upgrade Screen -->
-    <div id="screen-levelup" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-lg hidden pointer-events-auto">
-        <div class="text-center mb-12">
-            <h2 class="text-4xl font-black text-white tracking-tight mb-2">SYSTEM UPGRADE</h2>
-            <p class="text-sky-400 font-mono text-sm tracking-widest uppercase">Select augmentation</p>
+    <div id="screen-levelup" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl hidden pointer-events-auto p-4">
+        <div class="text-center mb-6 md:mb-12">
+            <h2 class="text-2xl md:text-4xl font-black text-white tracking-tight mb-1 md:mb-2">SYSTEM UPGRADE</h2>
+            <p class="text-sky-400 font-mono text-xs md:text-sm tracking-widest uppercase">Select augmentation</p>
         </div>
-        <div id="upgrade-container" class="flex flex-col md:flex-row gap-6 w-full max-w-6xl px-8 flex-wrap justify-center"></div>
+        <div id="upgrade-container" class="flex flex-col md:flex-row gap-4 md:gap-6 w-full max-w-6xl md:px-8 flex-wrap justify-center overflow-y-auto max-h-[60vh] md:max-h-full"></div>
     </div>
 
     <!-- Game Over Screen -->
-    <div id="screen-gameover" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/90 backdrop-blur-xl hidden pointer-events-auto overflow-y-auto py-10">
-        <h1 class="text-6xl md:text-8xl font-black text-white mb-2 tracking-tighter">ANOMALY <span class="text-red-500">FATAL</span></h1>
-        <p class="text-fuchsia-400 font-mono text-xl tracking-widest mb-8 uppercase" id="go-build-name">The Survivor</p>
+    <div id="screen-gameover" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/95 backdrop-blur-2xl hidden pointer-events-auto overflow-y-auto py-10 px-4">
+        <h1 class="text-5xl md:text-8xl font-black text-white mb-2 tracking-tighter">ANOMALY <span class="text-red-500">FATAL</span></h1>
+        <p class="text-fuchsia-400 font-mono text-lg md:text-xl tracking-widest mb-4 md:mb-8 uppercase" id="go-build-name">The Survivor</p>
         
-        <div class="glass-panel p-8 rounded-2xl mb-8 mt-8 w-full max-w-4xl border border-white/10 text-center">
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 font-mono mb-8 border-b border-white/10 pb-8">
+        <div class="glass-panel p-4 md:p-8 rounded-2xl mb-6 md:mb-8 mt-4 md:mt-8 w-full max-w-4xl border border-white/10 text-center">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6 font-mono mb-6 md:mb-8 border-b border-white/10 pb-6 md:pb-8">
                 <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
-                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Time Alive</p>
-                    <p class="text-3xl font-light text-white" id="go-time">00:00</p>
+                    <p class="text-slate-500 text-[9px] md:text-[10px] tracking-widest uppercase mb-1">Time Alive</p>
+                    <p class="text-2xl md:text-3xl font-light text-white" id="go-time">00:00</p>
                 </div>
                 <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
-                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Entities Killed</p>
-                    <p class="text-3xl font-bold text-white" id="go-kills">0</p>
+                    <p class="text-slate-500 text-[9px] md:text-[10px] tracking-widest uppercase mb-1">Entities Killed</p>
+                    <p class="text-2xl md:text-3xl font-bold text-white" id="go-kills">0</p>
                 </div>
                 <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
-                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Bosses Defeated</p>
-                    <p class="text-3xl font-bold text-sky-400" id="go-bosses">0</p>
+                    <p class="text-slate-500 text-[9px] md:text-[10px] tracking-widest uppercase mb-1">Bosses Defeated</p>
+                    <p class="text-2xl md:text-3xl font-bold text-sky-400" id="go-bosses">0</p>
                 </div>
                 <div>
-                    <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Level Reached</p>
-                    <p class="text-3xl font-bold text-yellow-400" id="go-level">1</p>
+                    <p class="text-slate-500 text-[9px] md:text-[10px] tracking-widest uppercase mb-1">Level Reached</p>
+                    <p class="text-2xl md:text-3xl font-bold text-yellow-400" id="go-level">1</p>
                 </div>
             </div>
             
             <!-- In-Depth Analytics -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 font-mono text-sm text-slate-300 text-left mb-8">
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Damage Dealt:</span> <span class="text-white font-bold" id="stat-dmg">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Highest DPS:</span> <span class="text-white font-bold" id="stat-dps">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Damage Taken:</span> <span class="text-rose-400 font-bold" id="stat-taken">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Healing Recv:</span> <span class="text-emerald-400 font-bold" id="stat-heal">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Projectiles Fired:</span> <span class="text-white font-bold" id="stat-proj">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Crits Landed:</span> <span class="text-yellow-400 font-bold" id="stat-crits">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Status Applied:</span> <span class="text-fuchsia-400 font-bold" id="stat-effects">0</span></div>
-                <div class="flex justify-between border-b border-white/5 pb-2"><span>Synergies Activated:</span> <span class="text-yellow-500 font-bold" id="stat-syns">0</span></div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-2 md:gap-y-4 font-mono text-[10px] md:text-sm text-slate-300 text-left mb-6 md:mb-8">
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Damage Dealt:</span> <span class="text-white font-bold" id="stat-dmg">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Highest DPS:</span> <span class="text-white font-bold" id="stat-dps">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Damage Taken:</span> <span class="text-rose-400 font-bold" id="stat-taken">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Healing Recv:</span> <span class="text-emerald-400 font-bold" id="stat-heal">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Projectiles Fired:</span> <span class="text-white font-bold" id="stat-proj">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Crits Landed:</span> <span class="text-yellow-400 font-bold" id="stat-crits">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Status Applied:</span> <span class="text-fuchsia-400 font-bold" id="stat-effects">0</span></div>
+                <div class="flex justify-between border-b border-white/5 pb-1 md:pb-2"><span>Synergies Activated:</span> <span class="text-yellow-500 font-bold" id="stat-syns">0</span></div>
             </div>
             
-            <div class="flex justify-center items-center gap-4">
-                <span class="text-slate-400 font-mono text-xs tracking-widest uppercase">Data Harvested:</span>
-                <div class="bg-sky-500/10 border border-sky-500/20 px-6 py-2 rounded-full flex items-center gap-2">
-                    <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
-                    <span class="font-mono font-bold text-sky-400 text-xl" id="go-shards">+0</span>
+            <div class="flex justify-center items-center gap-3 md:gap-4">
+                <span class="text-slate-400 font-mono text-[10px] md:text-xs tracking-widest uppercase">Data Harvested:</span>
+                <div class="bg-sky-500/10 border border-sky-500/20 px-4 md:px-6 py-1.5 md:py-2 rounded-full flex items-center gap-2 shadow-[0_0_15px_rgba(56,189,248,0.2)]">
+                    <svg class="w-4 h-4 md:w-5 md:h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
+                    <span class="font-mono font-bold text-sky-400 text-lg md:text-xl" id="go-shards">+0</span>
                 </div>
             </div>
         </div>
         
         <div class="flex gap-4">
-            <button id="btn-mainmenu" class="px-8 py-4 bg-white/5 text-white font-bold tracking-widest text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all">
+            <button id="btn-mainmenu" class="px-6 md:px-8 py-3 md:py-4 bg-white/5 text-white font-bold tracking-widest text-sm md:text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all">
                 RETURN TO MENU
             </button>
         </div>
@@ -357,98 +373,114 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // Your provided Firebase configuration
-        const appId = 'shapes-22dc1';
+        // FIREBASE CONFIGURATION (Insert your config here to enable Cloud Saves & Multiplayer on Github Pages)
         const firebaseConfig = {
             apiKey: "AIzaSyD0UDtrpSNGCN4pN4GXt0dQQZSuq76n6cI",
             authDomain: "shapes-22dc1.firebaseapp.com",
             projectId: "shapes-22dc1",
             storageBucket: "shapes-22dc1.firebasestorage.app",
             messagingSenderId: "662824269651",
-            appId: "1:662824269651:web:0d67a4a23b7f32a3fed3a6",
-            measurementId: "G-DF833TXHV6"
+            appId: "1:662824269651:web:0d67a4a23b7f32a3fed3a6"
         };
         
-        const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
-        const auth = getAuth(app);
+        let app, db, auth;
         let currentUser = null;
+        let isOfflineMode = false;
 
-        // UI Helpers
+        try {
+            app = initializeApp(firebaseConfig);
+            db = getFirestore(app);
+            auth = getAuth(app);
+        } catch(e) {
+            console.warn("Firebase failed to initialize. Falling back to Local Mode.", e);
+            isOfflineMode = true;
+        }
+
         function showSysMsg(text, colorClass = 'text-sky-400', bgClass = 'bg-sky-500/10 border-sky-500/20') {
             const container = document.getElementById('sys-msg-container');
             const el = document.createElement('div');
-            el.className = `font-mono text-xs px-4 py-2 rounded-full border backdrop-blur-md transition-all duration-300 translate-y-[-20px] opacity-0 ${colorClass} ${bgClass}`;
+            el.className = `font-mono text-[10px] md:text-xs px-3 md:px-4 py-1.5 md:py-2 rounded-full border backdrop-blur-md transition-all duration-300 translate-y-[-20px] opacity-0 shadow-lg ${colorClass} ${bgClass}`;
             el.innerText = text;
             container.appendChild(el);
-            
-            // Animate in
             setTimeout(() => { el.classList.remove('translate-y-[-20px]', 'opacity-0'); }, 10);
-            // Animate out
-            setTimeout(() => { 
-                el.classList.add('opacity-0'); 
-                setTimeout(() => el.remove(), 300);
-            }, 3000);
+            setTimeout(() => { el.classList.add('opacity-0'); setTimeout(() => el.remove(), 300); }, 3000);
         }
 
-        // --- AUTHENTICATION & SAVE SYSTEM ---
+        // --- SAVE SYSTEM ---
         const SaveSystem = {
-            data: { shards: 0, unlockedChars: ['ronin', 'lancer', 'bruiser'], unlockedSkins: ['default'], stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 } },
+            data: { shards: 0, unlockedChars: ['ronin', 'lancer', 'bruiser', 'sniper', 'bomber', 'seeker'], unlockedSkins: ['default'], stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 } },
             async init() {
-                // Determine Auth Strategy
+                // Initialize Local Storage First
                 try {
-                    await signInAnonymously(auth);
-                } catch (e) {
-                    console.error("Auth init failed", e);
-                    showSysMsg("AUTH FAILURE - PLAYING OFFLINE", "text-rose-400", "bg-rose-500/10 border-rose-500/20");
+                    const local = localStorage.getItem('bots_save_v6');
+                    if (local) {
+                        const parsed = JSON.parse(local);
+                        this.data = { ...this.data, ...parsed, stats: { ...this.data.stats, ...(parsed.stats || {}) } };
+                    } else {
+                        this.data.shards = 500; // New player bonus!
+                        this.saveLocal();
+                    }
+                } catch(e) {}
+
+                this.updateMenuUI();
+
+                if (isOfflineMode) {
+                    const dot = document.getElementById('sys-auth-dot'); const text = document.getElementById('sys-auth-text');
+                    dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
+                    text.innerText = "LOCAL MODE";
+                    return;
                 }
+
+                try { await signInAnonymously(auth); } catch(e) { console.warn("Auth failed", e); isOfflineMode = true; return; }
 
                 onAuthStateChanged(auth, async (user) => {
                     currentUser = user;
-                    const dot = document.getElementById('sys-auth-dot');
-                    const text = document.getElementById('sys-auth-text');
-                    
+                    const dot = document.getElementById('sys-auth-dot'); const text = document.getElementById('sys-auth-text');
                     if (user) {
                         dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
-                        text.innerText = user.isAnonymous ? "LINKED: GUEST" : "LINKED: CLOUD";
-                        await this.load();
+                        text.innerText = "CLOUD SYNCED";
+                        await this.loadCloud();
                     } else {
                         dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
                         text.innerText = "OFFLINE";
                     }
                 });
             },
-            async load() {
-                if (!currentUser) return;
+            saveLocal() {
+                try { localStorage.setItem('bots_save_v6', JSON.stringify(this.data)); } catch(e){}
+            },
+            async loadCloud() {
+                if (!currentUser || isOfflineMode) return;
                 try {
-                    const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
+                    const saveRef = doc(db, 'artifacts', 'bots_v6', 'users', currentUser.uid);
                     const snap = await getDoc(saveRef);
                     if (snap.exists()) {
-                        this.data = { ...this.data, ...snap.data() };
-                        if(!this.data.stats) this.data.stats = { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 };
+                        const cloudData = snap.data();
+                        // Merge logic: Take the highest shard count and combine arrays to prevent local wipes
+                        this.data.shards = Math.max(this.data.shards, cloudData.shards || 0);
+                        this.data.unlockedChars = [...new Set([...this.data.unlockedChars, ...(cloudData.unlockedChars || [])])];
+                        this.data.unlockedSkins = [...new Set([...this.data.unlockedSkins, ...(cloudData.unlockedSkins || [])])];
+                        this.data.stats.totalKills = Math.max(this.data.stats.totalKills, cloudData.stats?.totalKills || 0);
+                        this.saveLocal();
                     } else {
-                        // Create initial save
                         await setDoc(saveRef, this.data);
                     }
                     this.updateMenuUI();
-                    showSysMsg("DATA STREAM SYNCED", "text-emerald-400", "bg-emerald-500/10 border-emerald-500/20");
-                } catch (e) {
-                    console.error("Load failed", e);
-                }
+                } catch(e) { console.error("Cloud load failed", e); }
             },
             async save() {
-                if (!currentUser) return;
+                this.saveLocal();
+                if (!currentUser || isOfflineMode) return;
                 try {
-                    const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
+                    const saveRef = doc(db, 'artifacts', 'bots_v6', 'users', currentUser.uid);
                     await setDoc(saveRef, this.data, { merge: true });
-                } catch (e) {
-                    console.error("Save failed", e);
-                }
+                } catch(e) {}
             },
             awardShards(amount) {
+                if(isNaN(amount)) return;
                 this.data.shards += amount;
                 this.save();
                 this.updateMenuUI();
@@ -466,328 +498,217 @@
             },
             updateMenuUI() {
                 document.getElementById('menu-shards-display').innerText = this.data.shards;
-                
                 document.querySelectorAll('.char-card').forEach(card => {
                     const id = card.getAttribute('data-char');
                     if (this.data.unlockedChars.includes(id)) {
                         card.classList.remove('locked-item');
                         const overlay = card.querySelector('.locked-overlay');
                         if (overlay) overlay.style.display = 'none';
-                    } else {
-                        card.classList.add('locked-item');
-                    }
+                    } else { card.classList.add('locked-item'); }
                 });
-
                 document.querySelectorAll('.skin-btn').forEach(btn => {
                     const id = btn.getAttribute('data-skin');
                     if (this.data.unlockedSkins.includes(id)) {
                         btn.classList.remove('locked-item');
                         const span = btn.querySelector('span.text-sky-300');
                         if(span) span.remove();
-                    } else {
-                        btn.classList.add('locked-item');
-                    }
+                    } else { btn.classList.add('locked-item'); }
                 });
             }
         };
 
-        // --- MULTIPLAYER P2P SYSTEM ---
+        // --- P2P WEBRTC HYBRID MULTIPLAYER ---
         const Party = {
-            id: null,
-            isHost: false,
-            data: null,
-            unsub: null,
-            syncInterval: null,
-            remotePlayers: {}, // { uid: { x, y, drawX, drawY, hp, maxHp, skin, charId } }
-            peer: null,
-            connections: {},
-            useCloudFallback: false,
+            id: null, isHost: false, data: null, unsub: null, 
+            remotePlayers: {}, // { uid: { x, y, hp, maxHp, charId, skin, name, targetX, targetY, lastUpdate } }
+            peer: null, connections: {},
+            fallbackInterval: null, useFallback: false,
 
             generateCode() {
                 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-                let code = '';
-                for(let i=0; i<4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+                let code = ''; for(let i=0; i<4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
                 return code;
             },
-
-            getDocRef(code) {
-                return doc(db, 'artifacts', appId, 'public', 'parties', code);
-            },
-
-            initPeer(code) {
-                return new Promise((resolve) => {
-                    if (this.peer) this.peer.destroy();
-                    
-                    // WebRTC with Google STUN Fallbacks
-                    this.peer = new Peer(`${appId}-${code}-${currentUser.uid}`, {
-                        config: {'iceServers': [
-                            { urls: 'stun:stun.l.google.com:19302' },
-                            { urls: 'stun:stun1.l.google.com:19302' }
-                        ]}
-                    });
-
-                    // Start a 4-second timeout. If PeerJS fails to connect, fallback to Cloud.
-                    const fallbackTimeout = setTimeout(() => {
-                        console.warn("PeerJS connection timed out. Falling back to Cloud Sync.");
-                        this.useCloudFallback = true;
-                        resolve();
-                    }, 4000);
-
-                    this.peer.on('open', (id) => {
-                        clearTimeout(fallbackTimeout);
-                        console.log('My P2P ID is: ' + id);
-                        this.useCloudFallback = false;
-                        resolve();
-                    });
-
-                    this.peer.on('error', (err) => {
-                        clearTimeout(fallbackTimeout);
-                        console.warn("WebRTC Network Error:", err.type, "- Switching to Cloud Fallback");
-                        this.useCloudFallback = true;
-                        resolve(); // Resolve anyway so game doesn't crash
-                    });
-
-                    this.peer.on('connection', (conn) => {
-                        conn.on('data', (data) => {
-                            if(data.type === 'POS') {
-                                if(this.remotePlayers[data.uid]) {
-                                    this.remotePlayers[data.uid].x = data.x;
-                                    this.remotePlayers[data.uid].y = data.y;
-                                    this.remotePlayers[data.uid].hp = data.hp;
-                                }
-                            }
-                        });
-                        this.connections[conn.peer] = conn;
-                    });
-                });
-            },
+            getDocRef(code) { return doc(db, 'artifacts', 'bots_v6', 'parties', code); },
 
             async host() {
-                if (!currentUser) return;
+                if (isOfflineMode || !currentUser) { showSysMsg("CLOUD CONNECTION REQUIRED FOR CO-OP", "text-rose-400", "bg-rose-500/10"); return; }
                 const code = this.generateCode();
                 
-                showSysMsg("ESTABLISHING P2P TUNNEL...", "text-sky-400", "bg-sky-500/10");
-                await this.initPeer(code);
+                this.initPeer(code);
 
-                const ref = this.getDocRef(code);
                 const charId = document.querySelector('.char-card.selected').getAttribute('data-char');
                 const skin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
 
                 try {
-                    await setDoc(ref, {
-                        host: currentUser.uid,
-                        status: 'LOBBY',
-                        seed: Math.floor(Math.random() * 1000000),
-                        useCloudFallback: this.useCloudFallback, // Tell guests if we failed P2P
-                        players: {
-                            [currentUser.uid]: { name: `Player_${code.substring(0,2)}`, x: 0, y: 0, hp: 100, maxHp: 100, charId, skin }
-                        }
+                    await setDoc(this.getDocRef(code), {
+                        host: currentUser.uid, status: 'LOBBY', seed: Math.floor(Math.random() * 1000000),
+                        players: { [currentUser.uid]: { name: `Host_${code.substring(0,2)}`, charId, skin } }
                     });
-                    
-                    this.id = code;
-                    this.isHost = true;
-                    this.startListening();
-                    
-                    document.getElementById('party-view-select').classList.add('hidden');
-                    document.getElementById('party-view-lobby').classList.remove('hidden');
-                    document.getElementById('lobby-code-display').innerText = code;
-                    document.getElementById('btn-start-party').classList.remove('hidden');
-                    document.getElementById('lobby-status-text').innerText = this.useCloudFallback ? "P2P blocked. Using Cloud Relay." : "P2P Tunnel Active. Waiting...";
-                    document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
-                    document.getElementById('btn-open-party').classList.add('party-active-glow');
+                    this.id = code; this.isHost = true; this.startFirebaseListening();
+                    this.setupLobbyUI(code, true);
                     showSysMsg("PARTY HOSTED SUCCESSFULLY");
-                } catch(e) { console.error("Host error", e); showSysMsg("FAILED TO HOST", "text-rose-400", "bg-rose-500/10"); }
+                } catch(e) { showSysMsg("FAILED TO HOST", "text-rose-400", "bg-rose-500/10"); }
             },
 
             async join(code) {
-                if (!currentUser || !code) return;
+                if (isOfflineMode || !currentUser || !code) return;
                 code = code.toUpperCase();
-                const ref = this.getDocRef(code);
                 
                 try {
-                    const snap = await getDoc(ref);
-                    if (!snap.exists()) { showSysMsg("SESSION NOT FOUND", "text-rose-400", "bg-rose-500/10"); return; }
-                    if (snap.data().status !== 'LOBBY') { showSysMsg("SESSION ALREADY IN PROGRESS", "text-rose-400", "bg-rose-500/10"); return; }
-                    if (Object.keys(snap.data().players).length >= 4) { showSysMsg("SESSION FULL", "text-yellow-400", "bg-yellow-500/10"); return; }
-
-                    // If host is on fallback, force guest onto fallback too
-                    if(snap.data().useCloudFallback) {
-                        this.useCloudFallback = true;
-                    } else {
-                        showSysMsg("CONNECTING P2P TUNNEL...", "text-sky-400", "bg-sky-500/10");
-                        await this.initPeer(code);
+                    const snap = await getDoc(this.getDocRef(code));
+                    if (!snap.exists() || snap.data().status !== 'LOBBY' || Object.keys(snap.data().players).length >= 4) {
+                        showSysMsg("SESSION UNAVAILABLE OR FULL", "text-rose-400", "bg-rose-500/10"); return;
                     }
+
+                    this.initPeer(code + "_" + currentUser.uid.substring(0,5));
 
                     const charId = document.querySelector('.char-card.selected').getAttribute('data-char');
                     const skin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
 
-                    await updateDoc(ref, {
-                        [`players.${currentUser.uid}`]: { name: `Ally_${code.substring(0,2)}`, x: 0, y: 0, hp: 100, maxHp: 100, charId, skin }
+                    await updateDoc(this.getDocRef(code), {
+                        [`players.${currentUser.uid}`]: { name: `Ally_${currentUser.uid.substring(0,3)}`, charId, skin }
                     });
 
-                    this.id = code;
-                    this.isHost = false;
-                    this.startListening();
+                    this.id = code; this.isHost = false; this.startFirebaseListening();
+                    this.setupLobbyUI(code, false);
+                    showSysMsg("JOINED SESSION");
+                } catch(e) { showSysMsg("FAILED TO JOIN", "text-rose-400", "bg-rose-500/10"); }
+            },
 
-                    document.getElementById('party-view-select').classList.add('hidden');
-                    document.getElementById('party-view-lobby').classList.remove('hidden');
-                    document.getElementById('lobby-code-display').innerText = code;
+            setupLobbyUI(code, isHost) {
+                document.getElementById('party-view-select').classList.add('hidden');
+                document.getElementById('party-view-lobby').classList.remove('hidden');
+                document.getElementById('lobby-code-display').innerText = code;
+                document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
+                document.getElementById('btn-open-party').classList.add('party-active-glow');
+                
+                if (isHost) {
+                    document.getElementById('btn-start-party').classList.remove('hidden');
+                    document.getElementById('lobby-status-text').innerText = "Waiting for others to join...";
+                } else {
                     document.getElementById('btn-start-party').classList.add('hidden');
-                    document.getElementById('lobby-status-text').innerText = this.useCloudFallback ? "Using Cloud Relay. Awaiting Host..." : "P2P Active. Awaiting Host...";
-                    document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
-                    document.getElementById('btn-open-party').classList.add('party-active-glow');
+                    document.getElementById('lobby-status-text').innerText = "Awaiting Host to start...";
                     document.getElementById('btn-start').innerText = "WAITING FOR HOST...";
                     document.getElementById('btn-start').classList.add('opacity-50', 'pointer-events-none');
-                    showSysMsg("JOINED SESSION");
-                } catch(e) { console.error("Join error", e); showSysMsg("FAILED TO JOIN", "text-rose-400", "bg-rose-500/10"); }
+                }
             },
 
-            async leave() {
-                if (!this.id || !currentUser) return;
-                const ref = this.getDocRef(this.id);
-                try {
-                    if (this.isHost) {
-                        await updateDoc(ref, { status: 'CLOSED' });
-                    } else {
-                        await updateDoc(ref, { [`players.${currentUser.uid}`]: deleteField() });
-                    }
-                } catch(e) {} // Ignore errors on leave
-                
-                this.cleanup();
-            },
-
-            cleanup() {
-                if (this.unsub) this.unsub();
-                if (this.syncInterval) clearInterval(this.syncInterval);
+            // WebRTC Init
+            initPeer(peerId) {
                 if (this.peer) this.peer.destroy();
-                this.id = null;
-                this.isHost = false;
-                this.data = null;
-                this.remotePlayers = {};
-                this.connections = {};
+                // Using Google's free STUN servers to bypass NATs
+                this.peer = new Peer(peerId, { config: {'iceServers': [{ urls: 'stun:stun.l.google.com:19302' }]} });
                 
-                document.getElementById('party-view-select').classList.remove('hidden');
-                document.getElementById('party-view-lobby').classList.add('hidden');
-                document.getElementById('btn-party-text').innerText = "CO-OP";
-                document.getElementById('btn-open-party').classList.remove('party-active-glow');
-                document.getElementById('btn-start').innerText = "INITIATE SOLO SEQUENCE →";
-                document.getElementById('btn-start').classList.remove('opacity-50', 'pointer-events-none');
-                document.getElementById('modal-party').classList.add('hidden');
+                this.peer.on('open', (id) => { console.log('My WebRTC ID is: ' + id); });
+                this.peer.on('error', (err) => { 
+                    console.warn('WebRTC Error:', err); 
+                    this.useFallback = true; 
+                    showSysMsg("P2P FAILED. USING CLOUD RELAY.", "text-yellow-400", "bg-yellow-500/10");
+                });
+
+                this.peer.on('connection', (conn) => {
+                    this.connections[conn.peer] = conn;
+                    conn.on('data', (data) => this.handleNetworkData(conn.peer, data));
+                    conn.on('close', () => delete this.connections[conn.peer]);
+                });
             },
 
-            startListening() {
+            startFirebaseListening() {
                 if (this.unsub) this.unsub();
-                const ref = this.getDocRef(this.id);
-                
-                this.unsub = onSnapshot(ref, (snap) => {
+                this.unsub = onSnapshot(this.getDocRef(this.id), (snap) => {
                     if (!snap.exists()) { this.leave(); return; }
                     this.data = snap.data();
 
-                    if (this.data.status === 'CLOSED') {
-                        showSysMsg("SESSION CLOSED BY HOST", "text-yellow-400", "bg-yellow-500/10");
-                        this.cleanup();
-                        return;
-                    }
+                    if (this.data.status === 'CLOSED') { showSysMsg("SESSION CLOSED", "text-yellow-400", "bg-yellow-500/10"); this.leave(); return; }
 
-                    // Update Lobby UI
-                    if (document.getElementById('party-view-lobby').classList.contains('hidden') === false) {
-                        const list = document.getElementById('lobby-player-list');
-                        list.innerHTML = '';
+                    // Update Lobby
+                    if (!document.getElementById('party-view-lobby').classList.contains('hidden')) {
+                        const list = document.getElementById('lobby-player-list'); list.innerHTML = '';
                         for (let uid in this.data.players) {
-                            const p = this.data.players[uid];
-                            const isMe = uid === currentUser.uid;
-                            const isH = uid === this.data.host;
-                            list.innerHTML += `
-                                <li class="flex justify-between items-center bg-white/5 px-3 py-2 rounded border border-white/5">
-                                    <span class="${isMe ? 'text-sky-400 font-bold' : 'text-slate-300'}">${isH ? '👑 ' : ''}${p.name} ${isMe ? '(You)' : ''}</span>
-                                    <span class="text-xs text-slate-500 uppercase">${p.charId}</span>
-                                </li>
-                            `;
+                            const p = this.data.players[uid]; const isMe = uid === currentUser.uid; const isH = uid === this.data.host;
+                            list.innerHTML += `<li class="flex justify-between items-center bg-white/5 px-3 py-2 rounded border border-white/5">
+                                <span class="${isMe ? 'text-sky-400 font-bold' : 'text-slate-300'}">${isH ? '👑 ' : ''}${p.name}</span>
+                                <span class="text-xs text-slate-500 uppercase">${p.charId}</span></li>`;
                         }
                     }
 
-                    // Handle Game Start
+                    // Host Triggered Start
                     if (this.data.status === 'PLAYING' && state.status === 'MENU') {
                         document.getElementById('modal-party').classList.add('hidden');
                         
-                        // If P2P is active, establish connections to everyone else
-                        if(!this.useCloudFallback) {
-                            for (let uid in this.data.players) {
-                                if (uid !== currentUser.uid) {
-                                    const conn = this.peer.connect(`${appId}-${this.id}-${uid}`);
-                                    this.connections[uid] = conn;
-                                }
-                            }
+                        // If not host, connect to host WebRTC
+                        if (!this.isHost && !this.useFallback) {
+                            const conn = this.peer.connect(this.id); // Host ID is always the code
+                            conn.on('open', () => {
+                                this.connections[this.id] = conn;
+                                conn.on('data', (data) => this.handleNetworkData(this.id, data));
+                            });
                         }
 
-                        startGame(this.data.seed); // Pass shared seed
+                        startGame(this.data.seed);
                     }
 
-                    // In Game Updates
-                    if (state.status === 'PLAYING') {
-                        // Create tracking objects for new players
-                        for (let uid in this.data.players) {
-                            if (uid !== currentUser.uid && !this.remotePlayers[uid]) {
-                                this.remotePlayers[uid] = this.data.players[uid];
-                                this.remotePlayers[uid].drawX = this.remotePlayers[uid].x; // Set initial lerp values
-                                this.remotePlayers[uid].drawY = this.remotePlayers[uid].y;
+                    // Handle Cloud Fallback Data (if WebRTC fails)
+                    if (state.status === 'PLAYING' && this.useFallback && this.data.live_coords) {
+                        for(let uid in this.data.live_coords) {
+                            if (uid !== currentUser.uid && this.data.players[uid]) {
+                                this.updateRemotePlayer(uid, this.data.players[uid], this.data.live_coords[uid]);
                             }
                         }
-                        
-                        // If using Cloud Fallback, update coordinates from Firestore snapshot
-                        if (this.useCloudFallback) {
-                            for (let uid in this.remotePlayers) {
-                                if (this.data.players[uid]) {
-                                    this.remotePlayers[uid].x = this.data.players[uid].x;
-                                    this.remotePlayers[uid].y = this.data.players[uid].y;
-                                    this.remotePlayers[uid].hp = this.data.players[uid].hp;
-                                }
-                            }
-                        }
-                        
-                        this.updatePartyHUD();
                     }
-                }, (error) => {
-                    console.error("Party stream error", error);
                 });
+            },
+
+            handleNetworkData(peerId, data) {
+                // Determine UID from peerId (Host is code, clients are code_uid)
+                let uid = peerId === this.id ? this.data.host : peerId.split('_')[1];
+                if (uid && this.data && this.data.players[uid]) {
+                    this.updateRemotePlayer(uid, this.data.players[uid], data);
+                }
+                
+                // If Host, relay to other clients
+                if (this.isHost) {
+                    for(let c in this.connections) {
+                        if (c !== peerId) this.connections[c].send(data);
+                    }
+                }
+            },
+
+            updateRemotePlayer(uid, staticData, liveData) {
+                if (!this.remotePlayers[uid]) {
+                    this.remotePlayers[uid] = { ...staticData, x: liveData.x, y: liveData.y, targetX: liveData.x, targetY: liveData.y, hp: liveData.hp, maxHp: liveData.maxHp };
+                } else {
+                    const rp = this.remotePlayers[uid];
+                    rp.targetX = liveData.x; rp.targetY = liveData.y; rp.hp = liveData.hp; rp.maxHp = liveData.maxHp;
+                    rp.lastUpdate = state.gameTime;
+                }
+                this.updatePartyHUD();
             },
 
             async triggerStart() {
                 if (!this.isHost || !this.id) return;
-                try {
-                    await updateDoc(this.getDocRef(this.id), { status: 'PLAYING' });
-                } catch(e) { console.error("Start error", e); }
+                try { await updateDoc(this.getDocRef(this.id), { status: 'PLAYING' }); } catch(e){}
             },
 
             startSyncing() {
                 if (!this.id || !currentUser) return;
                 
-                // If WebRTC is active, broadcast 20 times a second (50ms). It's free!
-                // If Cloud Fallback is active, upload ~6 times a second (150ms) to save quota.
-                const intervalTime = this.useCloudFallback ? 150 : 50;
+                // Tick interval: 50ms for WebRTC (20fps), 150ms for Cloud Fallback
+                const tickRate = this.useFallback ? 150 : 50;
 
-                this.syncInterval = setInterval(async () => {
+                this.fallbackInterval = setInterval(async () => {
                     if (state.status !== 'PLAYING') return;
-                    const p = state.player;
+                    const payload = { x: Math.floor(state.player.x), y: Math.floor(state.player.y), hp: Math.floor(state.player.stats.hp), maxHp: Math.floor(state.player.stats.maxHp), uid: currentUser.uid };
                     
-                    if (this.useCloudFallback) {
-                        try {
-                            await updateDoc(this.getDocRef(this.id), {
-                                [`players.${currentUser.uid}.x`]: Math.floor(p.x),
-                                [`players.${currentUser.uid}.y`]: Math.floor(p.y),
-                                [`players.${currentUser.uid}.hp`]: Math.floor(p.stats.hp)
-                            });
-                        } catch(e) {}
-                    } else {
-                        // WebRTC P2P Data Blast
-                        const payload = { type: 'POS', uid: currentUser.uid, x: Math.floor(p.x), y: Math.floor(p.y), hp: Math.floor(p.stats.hp) };
-                        for(let uid in this.connections) {
-                            if(this.connections[uid] && this.connections[uid].open) {
-                                this.connections[uid].send(payload);
-                            }
-                        }
+                    if (!this.useFallback && Object.keys(this.connections).length > 0) {
+                        // Blast WebRTC
+                        for(let c in this.connections) this.connections[c].send(payload);
+                    } else if (this.useFallback) {
+                        // Slow Cloud Polling
+                        try { await updateDoc(this.getDocRef(this.id), { [`live_coords.${currentUser.uid}`]: payload }); } catch(e) {}
                     }
-                }, intervalTime);
+                }, tickRate);
             },
 
             updatePartyHUD() {
@@ -797,34 +718,41 @@
                     const rp = this.remotePlayers[uid];
                     const hpPercent = Math.max(0, rp.hp / rp.maxHp) * 100;
                     container.innerHTML += `
-                        <div class="flex flex-col items-end gap-1 mb-2 bg-black/40 p-2 rounded border border-white/10 backdrop-blur-md">
-                            <span class="text-[10px] font-mono text-purple-300 tracking-widest">${rp.name}</span>
-                            <div class="w-24 h-1 bg-white/10 rounded-full overflow-hidden">
+                        <div class="flex flex-col items-end gap-1 mb-1 md:mb-2 bg-black/40 p-1.5 md:p-2 rounded border border-white/10 backdrop-blur-md">
+                            <span class="text-[8px] md:text-[10px] font-mono text-purple-300 tracking-widest">${rp.name}</span>
+                            <div class="w-16 md:w-24 h-1 bg-white/10 rounded-full overflow-hidden">
                                 <div class="h-full bg-purple-500 transition-all duration-300" style="width: ${hpPercent}%"></div>
                             </div>
-                        </div>
-                    `;
+                        </div>`;
                 }
+            },
+
+            async leave() {
+                if (!this.id || !currentUser) return;
+                try {
+                    if (this.isHost) await updateDoc(this.getDocRef(this.id), { status: 'CLOSED' });
+                    else await updateDoc(this.getDocRef(this.id), { [`players.${currentUser.uid}`]: deleteField() });
+                } catch(e) {}
+                this.cleanup();
+            },
+
+            cleanup() {
+                if (this.unsub) this.unsub();
+                if (this.fallbackInterval) clearInterval(this.fallbackInterval);
+                if (this.peer) this.peer.destroy();
+                this.id = null; this.isHost = false; this.data = null; this.remotePlayers = {}; this.connections = {}; this.useFallback = false;
+                
+                document.getElementById('party-view-select').classList.remove('hidden');
+                document.getElementById('party-view-lobby').classList.add('hidden');
+                document.getElementById('btn-party-text').innerText = "CO-OP";
+                document.getElementById('btn-open-party').classList.remove('party-active-glow');
+                document.getElementById('btn-start').innerText = "INITIATE SOLO SEQUENCE →";
+                document.getElementById('btn-start').classList.remove('opacity-50', 'pointer-events-none');
+                document.getElementById('modal-party').classList.add('hidden');
             }
         };
 
-        // UI Bindings for Party
-        document.getElementById('btn-open-party').addEventListener('click', () => {
-            if (!currentUser) { showSysMsg("MUST CONNECT TO MAINFRAME FIRST", "text-yellow-400", "bg-yellow-500/10"); return; }
-            document.getElementById('modal-party').classList.remove('hidden');
-        });
-        document.getElementById('btn-close-party').addEventListener('click', () => document.getElementById('modal-party').classList.add('hidden'));
-        
-        document.getElementById('btn-create-party').addEventListener('click', () => Party.host());
-        document.getElementById('btn-join-party').addEventListener('click', () => {
-            const code = document.getElementById('party-code-input').value;
-            Party.join(code);
-        });
-        document.getElementById('btn-leave-party').addEventListener('click', () => Party.leave());
-        document.getElementById('btn-start-party').addEventListener('click', () => Party.triggerStart());
-
-        // --- GAME ENGINE ---
-        
+        // --- GAME ENGINE & LOGIC ---
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d', { alpha: false });
         let vw, vh;
@@ -832,7 +760,6 @@
         function resize() { vw = window.innerWidth; vh = window.innerHeight; canvas.width = vw; canvas.height = vh; }
         window.addEventListener('resize', resize); resize();
 
-        // Simple Seeded PRNG for identical spawns in Co-op
         function splitmix32(a) {
             return function() {
                 a |= 0; a = a + 0x9e3779b9 | 0;
@@ -841,7 +768,7 @@
                 return ((t = t ^ t >>> 15) >>> 0) / 4294967296;
             }
         }
-        let seededRandom = Math.random; // Default to normal random
+        let seededRandom = Math.random;
 
         const UI = {
             menu: document.getElementById('screen-menu'), hud: document.getElementById('screen-hud'),
@@ -849,6 +776,7 @@
             tracker: document.getElementById('screen-tracker'), trackerList: document.getElementById('tracker-list'),
             xpFill: document.getElementById('hud-xp-fill'), hpFill: document.getElementById('hud-hp-fill'),
             shieldContainer: document.getElementById('hud-shield-container'), shieldFill: document.getElementById('hud-shield-fill'), 
+            dashFill: document.getElementById('hud-dash-fill'),
             levelText: document.getElementById('hud-level'), timeText: document.getElementById('hud-time'), 
             killsText: document.getElementById('hud-kills'), comboText: document.getElementById('hud-combo'), 
             upgradeContainer: document.getElementById('upgrade-container'),
@@ -858,17 +786,20 @@
 
         const CHARACTERS = {
             // Melee
-            'ronin': { color: '#fb7185', stats: { weaponType: 'spin', maxHp: 120, speed: 290, damage: 80, fireRate: 1.5, pickupRange: 100, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 160, pierce: 0, armor: 2, regen: 0.5, critChance: 0.2, critMult: 2.0, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 1.5 } },
-            'lancer': { color: '#2dd4bf', stats: { weaponType: 'normal', maxHp: 130, speed: 260, damage: 45, fireRate: 2.5, pickupRange: 90, projectileSpeed: 1200, projectiles: 1, spread: 0, attackRange: 180, pierce: 999, armor: 2, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 1.5, dashCooldown: 2 } },
-            'paladin': { color: '#eab308', stats: { weaponType: 'pulse', maxHp: 200, speed: 180, damage: 60, fireRate: 1.0, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 200, pierce: 0, armor: 10, regen: 1.0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 4 } },
+            'ronin': { color: '#fb7185', isMelee: true, stats: { weaponType: 'spin', maxHp: 300, speed: 300, damage: 80, fireRate: 1.5, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 160, pierce: 0, armor: 5, regen: 1.0, critChance: 0.2, critMult: 2.0, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 1.5 } },
+            'lancer': { color: '#2dd4bf', isMelee: true, stats: { weaponType: 'normal', maxHp: 350, speed: 280, damage: 60, fireRate: 2.5, pickupRange: 110, projectileSpeed: 1200, projectiles: 1, spread: 0, attackRange: 200, pierce: 999, armor: 5, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 1.5, dashCooldown: 2 } },
+            'paladin': { color: '#eab308', isMelee: true, stats: { weaponType: 'pulse', maxHp: 500, speed: 220, damage: 60, fireRate: 1.0, pickupRange: 150, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 220, pierce: 0, armor: 15, regen: 5.0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 4 } },
             // Ranged
-            'bruiser': { color: '#fb923c', stats: { weaponType: 'normal', maxHp: 180, speed: 200, damage: 30, fireRate: 1.2, pickupRange: 80, projectileSpeed: 600, projectiles: 3, spread: 0.5, attackRange: 400, pierce: 0, armor: 5, regen: 0.5, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } },
-            'ranger': { color: '#34d399', stats: { weaponType: 'normal', maxHp: 100, speed: 240, damage: 15, fireRate: 6.0, pickupRange: 110, projectileSpeed: 800, projectiles: 1, spread: 0, attackRange: 600, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 0.8, dashCooldown: 2 } },
-            'channeler': { color: '#c084fc', stats: { weaponType: 'beam', maxHp: 90, speed: 220, damage: 150, fireRate: 10, pickupRange: 110, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 500, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 2.5 } },
+            'bruiser': { color: '#fb923c', stats: { weaponType: 'normal', maxHp: 400, speed: 240, damage: 40, fireRate: 1.2, pickupRange: 100, projectileSpeed: 600, projectiles: 3, spread: 0.5, attackRange: 400, pierce: 0, armor: 10, regen: 1.0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } },
+            'sniper': { color: '#22d3ee', stats: { weaponType: 'normal', maxHp: 200, speed: 250, damage: 250, fireRate: 0.5, pickupRange: 120, projectileSpeed: 2000, projectiles: 1, spread: 0, attackRange: 1500, pierce: 99, armor: 0, regen: 0, critChance: 0.5, critMult: 3.0, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 0, scale: 0.8, dashCooldown: 2 } },
+            'bomber': { color: '#ef4444', stats: { weaponType: 'normal', maxHp: 350, speed: 200, damage: 150, fireRate: 0.8, pickupRange: 150, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 600, pierce: 0, armor: 5, regen: 0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 150, scale: 3.0, dashCooldown: 4 } },
+            'seeker': { color: '#f472b6', stats: { weaponType: 'normal', maxHp: 250, speed: 260, damage: 20, fireRate: 4.0, pickupRange: 150, projectileSpeed: 500, projectiles: 2, spread: 1.0, attackRange: 800, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0.15, bounce: 0, homing: 0.2, explodeRadius: 0, scale: 0.6, dashCooldown: 2.5 } },
+            'ranger': { color: '#34d399', stats: { weaponType: 'normal', maxHp: 250, speed: 270, damage: 20, fireRate: 6.0, pickupRange: 130, projectileSpeed: 800, projectiles: 1, spread: 0.1, attackRange: 600, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 0.8, dashCooldown: 2 } },
+            'channeler': { color: '#c084fc', stats: { weaponType: 'beam', maxHp: 200, speed: 250, damage: 100, fireRate: 10, pickupRange: 130, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 500, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 2.5 } },
             // Gimmick
-            'trapper': { color: '#a3e635', stats: { weaponType: 'orbital', maxHp: 100, speed: 300, damage: 100, fireRate: 1.5, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 350, pierce: 0, armor: 0, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 100, scale: 1, dashCooldown: 1.5 } },
-            'architect': { color: '#d4d4d8', stats: { weaponType: 'normal', maxHp: 110, speed: 210, damage: 10, fireRate: 1.5, pickupRange: 150, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 400, pierce: 0, armor: 0, regen: 0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } }, 
-            'alchemist': { color: '#22d3ee', stats: { weaponType: 'normal', maxHp: 90, speed: 190, damage: 30, fireRate: 1.2, pickupRange: 100, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 800, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 3, homing: 0.02, explodeRadius: 0, scale: 1.2, dashCooldown: 2.5 }, effects: { poison: 1, freeze: 1, burn: 1 } }
+            'trapper': { color: '#a3e635', stats: { weaponType: 'orbital', maxHp: 250, speed: 320, damage: 150, fireRate: 1.5, pickupRange: 150, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 400, pierce: 0, armor: 0, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 100, scale: 1, dashCooldown: 1.5 } },
+            'architect': { color: '#d4d4d8', stats: { weaponType: 'normal', maxHp: 280, speed: 240, damage: 15, fireRate: 1.5, pickupRange: 200, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 400, pierce: 0, armor: 5, regen: 0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } }, 
+            'alchemist': { color: '#60a5fa', stats: { weaponType: 'normal', maxHp: 250, speed: 220, damage: 40, fireRate: 1.5, pickupRange: 120, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 800, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 3, homing: 0.02, explodeRadius: 0, scale: 1.2, dashCooldown: 2.5 }, effects: { poison: 1, freeze: 1, burn: 1 } }
         };
 
         const SHAPES = [
@@ -881,12 +812,12 @@
             { color: '#ef4444', name: "Red", hpM: 1, spdM: 1, dmgM: 1, xp: 1 }, { color: '#f97316', name: "Orange", hpM: 1.5, spdM: 1.05, dmgM: 1.2, xp: 2 },
             { color: '#eab308', name: "Yellow", hpM: 2.5, spdM: 1.1, dmgM: 1.5, xp: 3 }, { color: '#22c55e', name: "Green", hpM: 4, spdM: 1.15, dmgM: 2, xp: 4 },
             { color: '#06b6d4', name: "Cyan", hpM: 6, spdM: 1.2, dmgM: 2.5, xp: 5 }, { color: '#3b82f6', name: "Blue", hpM: 9, spdM: 1.25, dmgM: 3, xp: 7 },
-            { color: '#a855f7', name: "Purple", hpM: 13, spdM: 1.3, dmgM: 4, xp: 10 }, { color: '#d946ef', name: "Magenta", hpM: 18, spdM: 1.35, dmgM: 5, xp: 14 },
-            { color: '#f59e0b', name: "Gold", hpM: 25, spdM: 1.4, dmgM: 6.5, xp: 20 }, { color: '#f8fafc', name: "White", hpM: 35, spdM: 1.5, dmgM: 8, xp: 30 }
+            { color: '#a855f7', name: "Purple", hpM: 13, spdM: 1.3, dmgM: 4, xp: 8 }, { color: '#d946ef', name: "Magenta", hpM: 18, spdM: 1.35, dmgM: 5, xp: 10 },
+            { color: '#f59e0b', name: "Gold", hpM: 25, spdM: 1.4, dmgM: 6.5, xp: 12 }, { color: '#f8fafc', name: "White", hpM: 35, spdM: 1.5, dmgM: 8, xp: 15 }
         ];
 
         const ELITE_TYPES = [
-            { name: "Juggernaut", hpMult: 10, speedMult: 0.5, dmgMult: 2, scale: 2, color: '#991b1b', type: 'hexagon', behavior: 'push' },
+            { name: "Juggernaut", hpMult: 10, speedMult: 0.5, dmgMult: 1.5, scale: 2, color: '#991b1b', type: 'hexagon', behavior: 'push' },
             { name: "Sprinter", hpMult: 3, speedMult: 2.0, dmgMult: 1, scale: 1.2, color: '#fde047', type: 'triangle', behavior: 'dodge' },
             { name: "Splitter", hpMult: 5, speedMult: 0.8, dmgMult: 1, scale: 1.5, color: '#c084fc', type: 'square', behavior: 'split' },
             { name: "Vanguard", hpMult: 8, speedMult: 0.7, dmgMult: 1.5, scale: 1.4, color: '#cbd5e1', type: 'pentagon', behavior: 'shield' },
@@ -894,14 +825,15 @@
         ];
 
         const BOSS_TEMPLATES = [
-            { name: 'THE WHITE SHAPE', sides: 4, color: '#ffffff', hpMode: 1500, behavior: 'teleport' },
-            { name: 'CATHEDRAL-9', sides: 8, color: '#fcd34d', hpMode: 2500, behavior: 'bullet_hell' },
-            { name: 'MOTHER VERTEX', sides: 6, color: '#ec4899', hpMode: 2000, behavior: 'summoner' },
-            { name: 'VOID ORB', sides: 0, color: '#581c87', hpMode: 2800, behavior: 'pull' },
-            { name: 'OMEGA POLYGON', sides: 12, color: '#f43f5e', hpMode: 4000, behavior: 'omega' }
+            { name: 'THE WHITE SHAPE', sides: 4, color: '#ffffff', hpMode: 1500, dmgBase: 25, behavior: 'teleport' },
+            { name: 'CATHEDRAL-9', sides: 8, color: '#fcd34d', hpMode: 2500, dmgBase: 15, behavior: 'bullet_hell' },
+            { name: 'MOTHER VERTEX', sides: 6, color: '#ec4899', hpMode: 2000, dmgBase: 20, behavior: 'summoner' },
+            { name: 'VOID ORB', sides: 0, color: '#581c87', hpMode: 2800, dmgBase: 35, behavior: 'pull' },
+            { name: 'OMEGA POLYGON', sides: 12, color: '#f43f5e', hpMode: 4000, dmgBase: 25, behavior: 'omega' }
         ];
 
         const UPGRADES_DB = [
+            // Core Weapons
             { id: 'proj_up', title: 'Multishot', desc: '+1 Projectile per attack.', color: 'text-sky-300', excludeWeapons: ['beam', 'spin', 'pulse'], apply: p => p.stats.projectiles++ },
             { id: 'pierce_up', title: 'Armor Piercing', desc: 'Projectiles pass through +1 enemy.', color: 'text-indigo-400', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.pierce++ },
             { id: 'bounce_up', title: 'Ricochet', desc: 'Projectiles bounce to nearby enemies.', color: 'text-indigo-300', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.bounce++ },
@@ -910,29 +842,44 @@
             { id: 'dmg_up', title: 'Hollow Points', desc: '+20% Base Damage.', color: 'text-red-400', apply: p => p.stats.damage *= 1.20 },
             { id: 'fire_up', title: 'Overclocked Trigger', desc: '+25% Fire Rate.', color: 'text-amber-400', apply: p => p.stats.fireRate *= 1.25 },
             { id: 'crit_up', title: 'Lethality', desc: '+10% Crit Chance, +30% Crit DMG.', color: 'text-yellow-300', apply: p => { p.stats.critChance = Math.min(1, p.stats.critChance + 0.1); p.stats.critMult += 0.3; } },
-            { id: 'giant_up', title: 'Giant Projectiles', desc: 'Projectiles are massive.', color: 'text-slate-200', apply: p => p.stats.scale *= 1.5 },
-            { id: 'boss_hunt', title: 'Boss Killer', desc: 'Deal more damage to Bosses.', color: 'text-orange-400', apply: p => p.stats.bossDmg = (p.stats.bossDmg || 1) + 0.5 },
+            { id: 'giant_up', title: 'Size Alteration', desc: 'Increases projectile size (or melee range).', color: 'text-slate-200', apply: p => { if(CHARACTERS[p.charId].isMelee) p.stats.attackRange *= 1.25; else p.stats.scale *= 1.5; } },
+            { id: 'boss_hunt', title: 'Boss Killer', desc: 'Deal +50% more damage to Bosses/Elites.', color: 'text-orange-400', apply: p => p.stats.bossDmg = (p.stats.bossDmg || 1) + 0.5 },
 
+            // Status Effects
             { id: 'bleed_up', title: 'Serrated Edges', desc: 'Hits apply stacking Bleed over time.', color: 'text-rose-600', apply: p => p.effects.bleed = (p.effects.bleed || 0) + 1 },
             { id: 'poison_up', title: 'Toxic Coating', desc: 'Hits apply stacking Poison (% Max HP damage).', color: 'text-green-500', apply: p => p.effects.poison = (p.effects.poison || 0) + 1 },
             { id: 'freeze_up', title: 'Cryo Rounds', desc: 'Hits temporarily freeze and slow enemies.', color: 'text-cyan-300', apply: p => p.effects.freeze = (p.effects.freeze || 0) + 1 },
             { id: 'burn_up', title: 'Incendiary', desc: 'Hits apply stacking Burn damage.', color: 'text-orange-500', apply: p => p.effects.burn = (p.effects.burn || 0) + 1 },
-            { id: 'lightning_up', title: 'Tesla Coil', desc: 'Damage arcs to nearby enemies.', color: 'text-yellow-200', apply: p => p.effects.lightning = (p.effects.lightning || 0) + 1 },
+            { id: 'lightning_up', title: 'Tesla Coil', desc: 'Damage arcs to nearby enemies (Passive).', color: 'text-yellow-200', apply: p => p.effects.lightning = (p.effects.lightning || 0) + 1 },
             { id: 'singularity', title: 'Singularity', desc: 'Attacks have 10% chance to spawn a Black Hole.', color: 'text-purple-500', apply: p => p.effects.singularity = (p.effects.singularity || 0) + 1 },
+            
+            // New Procs
+            { id: 'missile_up', title: 'AtG Missile Mk.1', desc: '10% chance on hit to fire a homing missile.', color: 'text-red-400', apply: p => p.effects.missile = (p.effects.missile || 0) + 1 },
+            { id: 'dagger_up', title: 'Tri-Tip Dagger', desc: '15% chance on hit to throw a bleeding dagger.', color: 'text-stone-300', apply: p => p.effects.dagger = (p.effects.dagger || 0) + 1 },
+            { id: 'wisp_up', title: 'Will-o-the-Wisp', desc: 'Enemies explode into lava pillars on death.', color: 'text-orange-300', apply: p => p.effects.wisp = (p.effects.wisp || 0) + 1 },
+            { id: 'gas_up', title: 'Gasoline', desc: 'Killing an enemy ignites nearby enemies.', color: 'text-red-500', apply: p => p.effects.gasoline = (p.effects.gasoline || 0) + 1 },
 
-            { id: 'hp_up', title: 'Titanium Plating', desc: '+50 Max HP.', color: 'text-emerald-500', apply: p => { p.stats.maxHp += 50; p.stats.hp += 50; } },
-            { id: 'regen_up', title: 'Nanobots', desc: 'Regenerate 3 HP per second.', color: 'text-emerald-300', apply: p => p.stats.regen += 3 },
+            // Survival
+            { id: 'hp_up', title: 'Titanium Plating', desc: '+100 Max HP.', color: 'text-emerald-500', apply: p => { p.stats.maxHp += 100; p.stats.hp += 100; } },
+            { id: 'regen_up', title: 'Nanobots', desc: 'Regenerate 5 HP per second.', color: 'text-emerald-300', apply: p => p.stats.regen += 5 },
             { id: 'lifesteal_up', title: 'Vampirism', desc: 'Heal for 2% of damage dealt.', color: 'text-red-500', apply: p => p.stats.lifesteal += 0.02 },
             { id: 'spd_up', title: 'Servo Motors', desc: '+15% Move Speed.', color: 'text-teal-400', apply: p => p.stats.speed *= 1.15 },
             { id: 'dash_cd', title: 'Dash Thrusters', desc: 'Dash Cooldown reduced by 25%.', color: 'text-slate-300', apply: p => p.stats.dashCooldown *= 0.75 },
-            { id: 'armor_up', title: 'Heavy Armor', desc: 'Reduces incoming flat damage.', color: 'text-zinc-400', apply: p => p.stats.armor += 2 },
-            { id: 'dodge_up', title: 'Evasion', desc: 'Small chance to ignore damage completely.', color: 'text-slate-300', apply: p => p.stats.dodge += 0.05 },
+            { id: 'armor_up', title: 'Heavy Armor', desc: 'Reduces incoming flat damage by 5.', color: 'text-zinc-400', apply: p => p.stats.armor += 5 },
+            { id: 'dodge_up', title: 'Evasion', desc: '5% chance to ignore damage completely.', color: 'text-slate-300', apply: p => p.stats.dodge = Math.min(0.6, p.stats.dodge + 0.05) },
+            { id: 'shield_up', title: 'Energy Shield', desc: 'Gain a regenerating 50 HP Shield.', color: 'text-blue-400', apply: p => p.effects.maxShield = (p.effects.maxShield || 0) + 50 },
 
+            // Summons
             { id: 'orbit_shield', title: 'Orbiting Shield', desc: 'Spawns a shield that damages enemies.', color: 'text-cyan-400', apply: p => p.summons.orbitals = (p.summons.orbitals || 0) + 1 },
             { id: 'drone_up', title: 'Attack Drone', desc: 'Summons an autonomous attack drone.', color: 'text-zinc-300', apply: p => p.summons.drones = (p.summons.drones || 0) + 1 },
             { id: 'blade_up', title: 'Orbital Blade', desc: 'Summons a fast spinning blade.', color: 'text-fuchsia-500', apply: p => p.summons.blades = (p.summons.blades || 0) + 1 },
 
-            // Synergies
+            // Class Exclusives
+            { id: 'ce_sniper', title: 'High Velocity', desc: 'SNIPER ONLY: Projectile Speed x2, Damage x2.', color: 'text-cyan-300', reqClass: ['sniper'], apply: p => { p.stats.projectileSpeed *= 2; p.stats.damage *= 2; } },
+            { id: 'ce_bomber', title: 'Carpet Bomb', desc: 'BOMBER ONLY: Explosions leave burning hazards.', color: 'text-red-500', reqClass: ['bomber'], apply: p => p.effects.carpetBomb = true },
+            { id: 'ce_alchemist', title: 'Volatile Mix', desc: 'ALCHEMIST ONLY: Status procs trigger each other.', color: 'text-blue-300', reqClass: ['alchemist'], apply: p => p.effects.volatileMix = true },
+
+            // Synergies (Require 2 base items)
             { id: 'bloodplague', title: 'Bloodplague', desc: 'SYNERGY: Bleeding enemies explode on death.', color: 'text-red-700', unique: true, req: ['bleed_up'], apply: p => p.effects.bloodplague = true },
             { id: 'syn_toxic_blood', title: 'Toxic Hemorrhage', desc: 'SYNERGY: Bleeding enemies take 2x Poison damage.', color: 'text-lime-400', unique: true, req: ['bleed_up', 'poison_up'], apply: p => p.effects.toxicBlood = true },
             { id: 'syn_frostfire', title: 'Thermal Collapse', desc: 'SYNERGY: Frozen enemies take massive Burn damage and shatter.', color: 'text-orange-400', unique: true, req: ['burn_up', 'freeze_up'], apply: p => p.effects.frostfire = true },
@@ -945,7 +892,7 @@
             { id: 'syn_titan', title: 'Titanbreaker', desc: 'SYNERGY: Giant projectiles deal 3x damage to Bosses.', color: 'text-amber-500', unique: true, req: ['giant_up', 'boss_hunt'], apply: p => p.effects.titanbreaker = true },
             { id: 'syn_fortress', title: 'Orbital Fortress', desc: 'SYNERGY: Orbitals grant massive armor bonuses.', color: 'text-zinc-200', unique: true, req: ['orbit_shield', 'armor_up'], apply: p => p.effects.orbitalFortress = true },
 
-            // Forbiddens
+            // Forbiddens (Rare, high risk/reward)
             { id: 'f_corrupted', title: 'Corrupted Core', desc: 'FORBIDDEN: +300% Damage. Lose 2% Max HP per second.', color: 'text-red-600', isForbidden: true, unique: true, apply: p => { p.stats.damage *= 4.0; p.effects.corrupted = true; } },
             { id: 'f_fragile', title: 'Fragile Infinity', desc: 'FORBIDDEN: Infinite Pierce & Bounce. Max HP becomes 1.', color: 'text-red-600', isForbidden: true, unique: true, apply: p => { p.stats.pierce = 999; p.stats.bounce = 99; p.stats.maxHp = 1; p.stats.hp = 1; } }
         ];
@@ -970,7 +917,6 @@
             reset(charId, skin, seed) {
                 this.status = 'MENU'; this.gameTime = 0; this.timeScale = 1.0;
                 
-                // Initialize Seeded Random if a seed is provided (Multiplayer)
                 if (seed !== undefined) seededRandom = splitmix32(seed);
                 else seededRandom = Math.random;
 
@@ -983,7 +929,7 @@
                     summons: {}, upgradesLog: {}, ownedUpgrades: new Set(),
                     progression: { level: 1, xp: 0, nextXp: 50, kills: 0 },
                     lastAttackTime: 0, combo: 1.0, comboTimer: 0,
-                    dashActive: 0, dashCooldownTimer: 0, shield: 0, beamTarget: null,
+                    dashActive: 0, dashCooldownTimer: 0, shield: 0, beamTarget: null, shieldRechargeTimer: 0,
                     runStats: { damageDealt: 0, damageTaken: 0, healingReceived: 0, projectilesFired: 0, critsLanded: 0, statusEffectsApplied: 0, dodgesTriggered: 0, highestDps: 0, currentSecDmg: 0, lastSecTime: 0, synergiesActivated: 0, bossKills: 0 }
                 };
                 
@@ -1011,7 +957,7 @@
         const state = new GameState();
         let commandQueue = []; 
 
-        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false, " ": false };
+        const keys = { w: false, a: false, s: false, d: false, arrowup: false, arrowleft: false, arrowdown: false, arrowright: false, " ": false };
         window.addEventListener('keydown', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = true; });
         window.addEventListener('keyup', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = false; });
         window.addEventListener('keydown', e => {
@@ -1022,13 +968,18 @@
             }
         });
 
+        function clearInputs() {
+            for(let k in keys) keys[k] = false;
+            commandQueue = [];
+        }
+
         function processInputs() {
             if (state.status !== 'PLAYING') return;
             let dirX = 0, dirY = 0;
-            if (keys.w || keys.ArrowUp) dirY -= 1;
-            if (keys.s || keys.ArrowDown) dirY += 1;
-            if (keys.a || keys.ArrowLeft) dirX -= 1;
-            if (keys.d || keys.ArrowRight) dirX += 1;
+            if (keys.w || keys.arrowup) dirY -= 1;
+            if (keys.s || keys.arrowdown) dirY += 1;
+            if (keys.a || keys.arrowleft) dirX -= 1;
+            if (keys.d || keys.arrowright) dirX += 1;
 
             if (dirX !== 0 && dirY !== 0) { const len = Math.sqrt(dirX*dirX + dirY*dirY); dirX /= len; dirY /= len; }
             if (dirX !== 0 || dirY !== 0) commandQueue.push({ type: 'MOVE', dirX, dirY });
@@ -1044,6 +995,7 @@
             
             let validUpgrades = UPGRADES_DB.filter(u => {
                 if (u.excludeWeapons && u.excludeWeapons.includes(state.player.stats.weaponType)) return false;
+                if (u.reqClass && !u.reqClass.includes(state.player.charId)) return false;
                 let reqMet = !u.req || u.req.every(r => state.player.ownedUpgrades.has(r));
                 let notMaxed = !u.unique || !state.player.ownedUpgrades.has(u.id);
                 return reqMet && notMaxed;
@@ -1069,7 +1021,7 @@
 
             selected.forEach(upg => {
                 const isSyn = upg.req && upg.req.length > 0;
-                let cardClasses = `upgrade-card rounded-2xl p-6 cursor-pointer w-full md:w-[30%] flex flex-col items-center text-center `;
+                let cardClasses = `upgrade-card rounded-2xl p-4 md:p-6 cursor-pointer w-[45%] md:w-[30%] flex flex-col items-center text-center shrink-0 `;
                 if(upg.isForbidden) cardClasses += `forbidden-card`;
                 else if (isSyn) cardClasses += `border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.2)]`;
 
@@ -1081,13 +1033,13 @@
                 if(upg.isForbidden) icon = '<svg class="w-6 h-6 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>';
 
                 btn.innerHTML = `
-                    <div class="w-12 h-12 rounded-full mb-3 flex items-center justify-center bg-white/5 border border-white/10 ${upg.color}">
+                    <div class="w-10 h-10 md:w-12 md:h-12 rounded-full mb-3 flex items-center justify-center bg-white/5 border border-white/10 ${upg.color}">
                         ${icon}
                     </div>
-                    ${isSyn ? '<span class="text-[10px] font-bold tracking-widest text-yellow-400 mb-2 uppercase bg-yellow-500/10 px-2 py-0.5 rounded">Synergy Discovered</span>' : ''}
-                    ${upg.isForbidden ? '<span class="text-[10px] font-bold tracking-widest text-red-400 mb-2 uppercase bg-red-900/30 px-2 py-0.5 rounded">Anomaly Detected</span>' : ''}
-                    <h3 class="text-xl font-bold ${upg.color} mb-2">${upg.title}</h3>
-                    <p class="text-slate-400 text-sm font-mono leading-relaxed">${upg.desc}</p>
+                    ${isSyn ? '<span class="text-[8px] md:text-[10px] font-bold tracking-widest text-yellow-400 mb-2 uppercase bg-yellow-500/10 px-2 py-0.5 rounded">Synergy Discovered</span>' : ''}
+                    ${upg.isForbidden ? '<span class="text-[8px] md:text-[10px] font-bold tracking-widest text-red-400 mb-2 uppercase bg-red-900/30 px-2 py-0.5 rounded">Anomaly Detected</span>' : ''}
+                    <h3 class="text-sm md:text-xl font-bold ${upg.color} mb-1 md:mb-2">${upg.title}</h3>
+                    <p class="text-slate-400 text-[9px] md:text-sm font-mono leading-relaxed">${upg.desc}</p>
                 `;
                 btn.onclick = () => {
                     upg.apply(state.player);
@@ -1095,6 +1047,7 @@
                     state.player.ownedUpgrades.add(upg.id);
                     if(isSyn) state.player.runStats.synergiesActivated++;
                     syncSummons();
+                    clearInputs();
                     state.status = 'PLAYING'; UI.levelup.classList.add('hidden'); updateHUD();
                 };
                 UI.upgradeContainer.appendChild(btn);
@@ -1131,10 +1084,18 @@
             UI.xpFill.style.width = `${(p.progression.xp / p.progression.nextXp) * 100}%`;
             UI.hpFill.style.width = `${Math.max(0, (p.stats.hp / p.stats.maxHp)) * 100}%`;
             
-            if(p.shield > 0) {
+            // Shield Logic
+            if(p.effects.maxShield > 0) {
                 UI.shieldContainer.classList.remove('hidden'); UI.shieldContainer.classList.add('flex');
-                UI.shieldFill.style.width = `${Math.min(100, (p.shield / 50) * 100)}%`; 
+                UI.shieldFill.style.width = `${Math.min(100, (p.shield / p.effects.maxShield) * 100)}%`; 
             } else { UI.shieldContainer.classList.add('hidden'); UI.shieldContainer.classList.remove('flex'); }
+
+            // Dash Logic
+            if (p.stats.dashCooldown > 0) {
+                let dashProgress = p.dashCooldownTimer <= 0 ? 100 : 100 - ((p.dashCooldownTimer / p.stats.dashCooldown) * 100);
+                UI.dashFill.style.width = `${dashProgress}%`;
+                UI.dashFill.className = p.dashCooldownTimer <= 0 ? "h-full bg-sky-300 w-full transition-all duration-100 shadow-[0_0_8px_rgba(125,211,252,0.8)]" : "h-full bg-slate-500 w-full transition-all duration-100";
+            }
 
             UI.levelText.innerText = `LVL ${p.progression.level}`;
             UI.killsText.innerText = `${p.progression.kills} KILLS`;
@@ -1168,10 +1129,10 @@
 
         function spawnEnemy(isSwarm = false) {
             const angle = seededRandom() * Math.PI * 2;
-            const dist = isSwarm ? MathHelper.rand(600, 1000) : Math.max(vw, vh) * 0.6; 
+            const dist = isSwarm ? MathHelper.rand(400, 800) : Math.max(vw, vh) * 0.6; 
             state.spawner.waveMult = 1.0 + (state.gameTime / 60) * 0.5; 
             
-            let maxTier = Math.min(TIERS.length - 1, Math.floor(state.gameTime / 60)); 
+            let maxTier = Math.min(TIERS.length - 1, Math.floor(state.gameTime / 50)); 
             let tierIdx = isSwarm ? Math.floor(seededRandom() * Math.min(2, maxTier + 1)) : Math.max(0, Math.floor(seededRandom() * (maxTier + 1)));
             if (!isSwarm && seededRandom() < 0.3) tierIdx = maxTier; 
             
@@ -1181,10 +1142,10 @@
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: shape.radius * (1 + tierIdx*0.1), sides: shape.sides, color: tier.color, type: shape.type,
-                hp: 15 * tier.hpM * state.spawner.waveMult, maxHp: 15 * tier.hpM * state.spawner.waveMult,
+                hp: 20 * tier.hpM * state.spawner.waveMult, maxHp: 20 * tier.hpM * state.spawner.waveMult,
                 speed: 120 * tier.spdM * MathHelper.rand(0.8, 1.2), damage: 5 * tier.dmgM * state.spawner.waveMult,
                 erratic: shape.erratic, freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
-                isBoss: false, isElite: false, vx: 0, vy: 0, timer: 0, xp: 10 * tier.xp
+                isBoss: false, isElite: false, vx: 0, vy: 0, timer: 0, xp: tier.xp
             });
         }
 
@@ -1196,7 +1157,7 @@
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: 15 * t.scale, sides: SHAPES.find(s=>s.type === t.type).sides, color: t.color,
-                hp: 100 * state.spawner.waveMult * t.hpMult, maxHp: 100 * state.spawner.waveMult * t.hpMult,
+                hp: 150 * state.spawner.waveMult * t.hpMult, maxHp: 150 * state.spawner.waveMult * t.hpMult,
                 speed: 100 * t.speedMult, damage: 20 * state.spawner.waveMult * t.dmgMult,
                 freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: false, isElite: true, behavior: t.behavior, timer: 0, vx: 0, vy: 0
@@ -1207,7 +1168,7 @@
 
         function spawnBoss() {
             const angle = seededRandom() * Math.PI * 2;
-            const dist = Math.max(vw, vh) * 0.5;
+            const dist = 500; // Spawn closer
             const waveScale = 1.0 + state.spawner.bossesSpawned;
             const t = BOSS_TEMPLATES[state.spawner.bossesSpawned % BOSS_TEMPLATES.length];
             
@@ -1215,7 +1176,7 @@
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: 60, sides: t.sides, color: t.color, behavior: t.behavior,
                 hp: t.hpMode * waveScale, maxHp: t.hpMode * waveScale,
-                speed: 40, damage: 30 * waveScale,
+                speed: 50, damage: t.dmgBase * waveScale,
                 freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: true, name: `${t.name} MK-${Math.floor(state.spawner.bossesSpawned/BOSS_TEMPLATES.length) + 1}`,
                 state: 'chase', timer: 0, vx: 0, vy: 0, maxPhase: 2, phase: 1
@@ -1237,6 +1198,33 @@
             if(!isEnemy) state.player.runStats.projectilesFired++;
         }
 
+        function triggerProcChain(e, dmg, isCrit) {
+            const p = state.player;
+            // Daggers
+            if (p.effects.dagger && seededRandom() < 0.15) {
+                for(let i=0; i<p.effects.dagger; i++) {
+                    createProjectile(p.x, p.y, MathHelper.angle(p, e) + MathHelper.rand(-0.2, 0.2), { projectileSpeed: 800, damage: p.stats.damage * 0.5, attackRange: 600 }, { bleed: 1 }, '#d6d3d1');
+                }
+            }
+            // Missiles
+            if (p.effects.missile && seededRandom() < 0.10) {
+                for(let i=0; i<p.effects.missile; i++) {
+                    createProjectile(p.x, p.y, Math.PI*1.5 + MathHelper.rand(-0.5, 0.5), { projectileSpeed: 600, damage: p.stats.damage * 3.0, attackRange: 1000, homing: 0.2, explodeRadius: 40 }, {}, '#ef4444');
+                }
+            }
+        }
+
+        function triggerKillProc(e) {
+            const p = state.player;
+            if (p.effects.wisp) {
+                explosion(e.x, e.y, 80 + (p.effects.wisp * 20), p.stats.damage * 2.5 * p.effects.wisp, 'rgba(253, 186, 116, 0.5)');
+                state.particles.push({ type: 'vertical_beam', x: e.x, y: e.y, life: 0.4, maxLife: 0.4, color: '#fdba74', radius: 80 });
+            }
+            if (p.effects.gasoline) {
+                state.hazards.push({ x: e.x, y: e.y, radius: 100 + (p.effects.gasoline * 20), timer: 3.0, damage: 0, isPlayerHazard: true, burnStacks: p.effects.gasoline });
+            }
+        }
+
         function applyDamage(e, baseDmg, colorOverride = null) {
             const p = state.player;
             let dmg = baseDmg * p.combo;
@@ -1248,6 +1236,8 @@
             p.runStats.damageDealt += dmg;
             p.runStats.currentSecDmg += dmg;
             
+            triggerProcChain(e, dmg, isCrit);
+
             if(p.stats.hasCombo) { 
                 let maxCombo = 1.0 + ((p.stats.comboLevel || 1) * 0.5);
                 p.combo = Math.min(maxCombo, p.combo + 0.05); 
@@ -1293,7 +1283,10 @@
 
                 let finalDmg = Math.max(1, rawDmg - finalArmor);
                 
-                if(p.shield > 0) { if(p.shield >= finalDmg) { p.shield -= finalDmg; p.runStats.damageTaken += finalDmg; return; } else { finalDmg -= p.shield; p.shield = 0; } }
+                if(p.shield > 0) { 
+                    if(p.shield >= finalDmg) { p.shield -= finalDmg; p.runStats.damageTaken += finalDmg; p.shieldRechargeTimer = 3.0; return; } 
+                    else { finalDmg -= p.shield; p.shield = 0; p.shieldRechargeTimer = 3.0; } 
+                }
                 p.stats.hp -= finalDmg;
                 p.runStats.damageTaken += finalDmg;
             } else {
@@ -1313,13 +1306,6 @@
             
             const dt = dtReal * state.timeScale;
             state.gameTime += dtReal;
-
-            // Interpolate remote players for smoothness
-            for (let uid in Party.remotePlayers) {
-                let rp = Party.remotePlayers[uid];
-                rp.drawX = MathHelper.lerp(rp.drawX, rp.x, 10 * dtReal);
-                rp.drawY = MathHelper.lerp(rp.drawY, rp.y, 10 * dtReal);
-            }
 
             // DPS Calc
             if (Math.floor(state.gameTime) > p.runStats.lastSecTime) {
@@ -1379,16 +1365,16 @@
             collideWithObstacles(p);
             constrainToBounds(p);
 
-            // Anti-Standstill System (Unescapable Orbital Strike)
+            // Anti-Standstill System (60 Seconds Wait -> Evisceration)
             if (state.gameTime % 1 < dtReal) {
                 if (!movedThisFrame || MathHelper.dist(p, {x: state.antiIdle.lastX, y: state.antiIdle.lastY}) < 30) {
                     state.antiIdle.timer++;
-                    if (state.antiIdle.timer === 2) state.floatingTexts.push({ x: p.x, y: p.y - 40, text: "MOVEMENT REQUIRED", life: 1.5, color: '#facc15', vy: -10, size: 12 });
-                    if (state.antiIdle.timer >= 4) {
-                        state.particles.push({ type: 'vertical_beam', x: p.x, y: p.y, life: 0.5, maxLife: 0.5, color: '#ef4444', radius: 150 });
-                        explosion(p.x, p.y, 150, 0, 'rgba(239, 68, 68, 0.8)'); 
-                        takePlayerDamage(p.stats.maxHp * 0.4, true); // True Damage Orbital
-                        state.floatingTexts.push({ x: p.x, y: p.y - 60, text: "ORBITAL PUNISHMENT", life: 2.0, color: '#ef4444', vy: -20, size: 16 });
+                    if (state.antiIdle.timer === 50) state.floatingTexts.push({ x: p.x, y: p.y - 40, text: "MOVEMENT REQUIRED", life: 1.5, color: '#facc15', vy: -10, size: 12 });
+                    if (state.antiIdle.timer >= 60) {
+                        state.particles.push({ type: 'vertical_beam', x: p.x, y: p.y, life: 0.5, maxLife: 0.5, color: '#ef4444', radius: 300 });
+                        explosion(p.x, p.y, 300, 0, 'rgba(239, 68, 68, 0.8)'); 
+                        takePlayerDamage(999999, true); 
+                        state.floatingTexts.push({ x: p.x, y: p.y - 60, text: "EVISCERATED", life: 2.0, color: '#ef4444', vy: -20, size: 24 });
                         state.antiIdle.timer = 0;
                     }
                 } else { state.antiIdle.timer = 0; }
@@ -1402,6 +1388,24 @@
                 let heal = p.stats.regen * dtReal;
                 p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal);
                 p.runStats.healingReceived += heal;
+            }
+            
+            // Shield Recharge
+            if (p.effects.maxShield > 0) {
+                if (p.shieldRechargeTimer > 0) p.shieldRechargeTimer -= dtReal;
+                else if (p.shield < p.effects.maxShield) p.shield = Math.min(p.effects.maxShield, p.shield + (p.effects.maxShield * 0.1 * dtReal));
+            }
+
+            // Continuous Static Charge
+            if (p.effects.lightning) {
+                if (state.gameTime % 0.5 < dtReal) { // Throttle to 2 times a second
+                    let nearest = null, minDist = 200;
+                    for (let e of state.enemies) { let d = MathHelper.dist(p, e); if (d < minDist) { minDist = d; nearest = e; } }
+                    if (nearest) {
+                        applyDamage(nearest, p.stats.damage * 0.2 * p.effects.lightning, '#fef08a');
+                        state.particles.push({x: p.x, y: p.y, targetX: nearest.x, targetY: nearest.y, life: 0.15, color: '#fef08a', isLine: true});
+                    }
+                }
             }
 
             // Summons
@@ -1425,6 +1429,15 @@
             for(let d of state.drones) {
                 d.targetX = p.x + Math.cos(state.gameTime*2 + d.lastFire)*50; d.targetY = p.y + Math.sin(state.gameTime*2 + d.lastFire)*50;
                 d.x = MathHelper.lerp(d.x, d.targetX, 3*dtReal); d.y = MathHelper.lerp(d.y, d.targetY, 3*dtReal);
+                d.lastFire += dtReal;
+                if (d.lastFire > d.cooldown) {
+                    let nearest = null, minDist = 400;
+                    for (let e of state.enemies) { let dist = MathHelper.dist(d, e); if (dist < minDist) { minDist = dist; nearest = e; } }
+                    if (nearest) {
+                        createProjectile(d.x, d.y, MathHelper.angle(d, nearest), { projectileSpeed: 500, damage: p.stats.damage * 0.3, attackRange: 400 }, {}, '#cbd5e1');
+                        d.lastFire = 0;
+                    }
+                }
             }
             let bladeSpeed = 10 * state.timeScale;
             for(let i=0; i<state.blades.length; i++) {
@@ -1458,14 +1471,14 @@
                 state.worldEvent.timer -= dtReal;
                 if (state.worldEvent.active === "TIME_DISTORTION") state.timeScale = 0.3;
                 else state.timeScale = 1.0;
-                if (state.worldEvent.active === "BLOOD_MOON" && Math.floor(state.worldEvent.timer * 10) % 2 === 0 && state.enemies.length < 250) spawnEnemy(true);
+                if (state.worldEvent.active === "BLOOD_MOON" && Math.floor(state.worldEvent.timer * 10) % 2 === 0 && state.enemies.length < 300) spawnEnemy(true);
             } else { state.worldEvent.active = null; state.timeScale = 1.0; }
 
             if(!state.bossActive) {
                 state.spawner.nextSpawn -= dt;
                 if (state.spawner.nextSpawn <= 0) {
                     spawnEnemy();
-                    state.spawner.spawnRate = Math.max(0.15, 1.0 - (state.gameTime / 400)); 
+                    state.spawner.spawnRate = Math.max(0.08, 1.0 - (state.gameTime / 300)); 
                     state.spawner.nextSpawn = state.spawner.spawnRate;
                 }
             }
@@ -1566,9 +1579,19 @@
 
             for (let i = state.hazards.length - 1; i >= 0; i--) {
                 let h = state.hazards[i]; h.timer -= dt;
+                if (h.isPlayerHazard && state.gameTime % 0.5 < dtReal) {
+                    for(let e of state.enemies) {
+                        if (MathHelper.dist(e, h) < h.radius) {
+                            applyDamage(e, p.stats.damage * 0.5, '#ef4444');
+                            if (h.burnStacks) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + h.burnStacks; }
+                        }
+                    }
+                }
                 if(h.timer <= 0) {
-                    explosion(h.x, h.y, h.radius, 0, 'rgba(239, 68, 68, 0.4)'); 
-                    if(MathHelper.dist(p, h) < h.radius + p.radius) takePlayerDamage(h.damage);
+                    if(!h.isPlayerHazard) {
+                        explosion(h.x, h.y, h.radius, 0, 'rgba(239, 68, 68, 0.4)'); 
+                        if(MathHelper.dist(p, h) < h.radius + p.radius) takePlayerDamage(h.damage);
+                    }
                     state.hazards.splice(i, 1);
                 }
             }
@@ -1611,7 +1634,10 @@
                             if (proj.effects.bleed) { e.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
                             if (proj.effects.poison) { e.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
                             if (proj.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + proj.effects.burn; p.runStats.statusEffectsApplied++; }
-                            if (proj.explodeRadius > 0) explosion(e.x, e.y, proj.explodeRadius, proj.damage * 0.5);
+                            if (proj.explodeRadius > 0) {
+                                explosion(e.x, e.y, proj.explodeRadius, proj.damage * (p.effects.carpetBomb ? 1.5 : 0.5));
+                                if (p.effects.carpetBomb) state.hazards.push({ x: e.x, y: e.y, radius: 80, timer: 2.0, damage: 0, isPlayerHazard: true, burnStacks: 2 });
+                            }
                             if (proj.effects.singularity && seededRandom() < 0.1) {
                                 state.blackholes.push({ x: proj.x, y: proj.y, radius: 40 + proj.effects.singularity*15, pull: 100 + proj.effects.singularity*50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
                             }
@@ -1647,6 +1673,10 @@
                 if (state.worldEvent.active === 'BLOOD_MOON') currentSpeed *= 1.5;
                 if (e.freezeTimer > 0) { currentSpeed *= 0.3; e.freezeTimer -= dt; }
                 if (e.bleedTimer > 0) { e.hp -= (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt; e.bleedTimer -= dt; if(seededRandom()<0.1) state.particles.push({x:e.x, y:e.y, vx:0, vy:-10, life:0.4, color:'#be123c', size:3}); p.runStats.damageDealt += (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt;}
+                if (e.burnTimer > 0) {
+                    let bDmg = (p.stats.damage * 0.15 * e.burnStacks) * dt; e.hp -= bDmg; e.burnTimer -= dt; p.runStats.damageDealt += bDmg;
+                    if(seededRandom()<0.1) state.particles.push({x:e.x, y:e.y, vx:MathHelper.rand(-5,5), vy:-15, life:0.3, color:'#f97316', size:4});
+                }
                 if (e.poisonTimer > 0) { 
                     let poisonDmg = (e.maxHp * 0.02 * (p.effects.poison||1)) * dt;
                     if (p.effects.toxicBlood && e.bleedTimer > 0) poisonDmg *= 2; 
@@ -1655,6 +1685,11 @@
                     p.runStats.damageDealt += poisonDmg;
                     e.poisonTimer -= dt; 
                     if(seededRandom()<0.1) state.particles.push({x:e.x, y:e.y, vx:MathHelper.rand(-5,5), vy:-10, life:0.3, color:'#22c55e', size:4}); 
+                }
+
+                if (p.effects.volatileMix && state.gameTime % 0.5 < dtReal) {
+                    if (e.bleedTimer > 0 && e.poisonTimer > 0) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + 1; }
+                    if (e.burnTimer > 0 && e.freezeTimer > 0) { explosion(e.x, e.y, 60, p.stats.damage, 'rgba(168, 85, 247, 0.4)'); e.freezeTimer = 0; }
                 }
                 
                 e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.9; e.vy *= 0.9; 
@@ -1675,6 +1710,7 @@
                 }
 
                 if (e.hp <= 0) {
+                    triggerKillProc(e);
                     if (p.effects.bloodplague && e.bleedTimer > 0) explosion(e.x, e.y, 60, p.stats.damage * 1.5, 'rgba(159, 18, 57, 0.5)');
                     if (p.effects.frostfire && e.freezeTimer > 0 && e.burnTimer > 0) explosion(e.x, e.y, 100, p.stats.damage * 3, 'rgba(56, 189, 248, 0.6)');
 
@@ -1708,7 +1744,7 @@
                         e.x += Math.cos(angle) * currentSpeed * 0.5 * dt; e.y += Math.sin(angle) * currentSpeed * 0.5 * dt;
                         if(e.timer > 2.0) { e.timer = 0; for(let r=0; r<3; r++) state.enemies.push({ x: e.x + MathHelper.rand(-50,50), y: e.y + MathHelper.rand(-50,50), radius: 10, sides: 3, color: '#ec4899', hp: 50, maxHp: 50, speed: 200, damage: 10, erratic: true, isBoss: false, vx:0, vy:0, timer:0, xp: 0 }); }
                     } else if (e.behavior === 'pull') {
-                        if(MathHelper.dist(e, p) < 500 && p.dashActive <= 0) { p.x += (e.x - p.x)*0.8*dt; p.y += (e.y - p.y)*0.8*dt; }
+                        if(MathHelper.dist(e, p) < 600 && p.dashActive <= 0) { p.x += (e.x - p.x)*1.5*dt; p.y += (e.y - p.y)*1.5*dt; }
                         if(e.timer > 3) { e.timer = 0; for(let r=0; r<8; r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.2, 0.2), {projectileSpeed: 300, damage: e.damage*1.5, attackRange: 1000, scale: 2}, {}, e.color, true, 'giant'); }
                     } else if (e.behavior === 'omega') {
                         e.x += Math.cos(angle) * currentSpeed * 0.2 * dt; e.y += Math.sin(angle) * currentSpeed * 0.2 * dt;
@@ -1719,7 +1755,7 @@
                     const angle = MathHelper.angle(e, p);
                     e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
                     if(e.behavior === 'mortar' && e.timer > 3) {
-                        e.timer = 0; state.hazards.push({ x: p.x, y: p.y, radius: 60, timer: 1.5, damage: e.damage * 2 }); 
+                        e.timer = 0; state.hazards.push({ x: p.x, y: p.y, radius: 60, timer: 1.5, damage: e.damage * 2, isPlayerHazard: false }); 
                     }
                 } else {
                     let angle = MathHelper.angle(e, p);
@@ -1816,8 +1852,12 @@
             }
 
             for(let h of state.hazards) {
-                ctx.fillStyle = 'rgba(239, 68, 68, 0.05)'; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fill();
-                ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius * (1 - (h.timer/1.5)), 0, Math.PI*2); ctx.stroke();
+                if(h.isPlayerHazard) {
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.2)'; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fill();
+                } else {
+                    ctx.fillStyle = 'rgba(239, 68, 68, 0.05)'; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fill();
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius * (1 - (h.timer/1.5)), 0, Math.PI*2); ctx.stroke();
+                }
             }
 
             for(let g of state.gems) { ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.moveTo(g.x, g.y - 4); ctx.lineTo(g.x + 4, g.y); ctx.lineTo(g.x, g.y + 4); ctx.lineTo(g.x - 4, g.y); ctx.fill(); }
@@ -1849,22 +1889,26 @@
                 ctx.shadowBlur = 0;
             }
 
-            // Render Remote Players (Ghosts) using Lerped coordinates
+            // Render Remote Players (Ghosts)
             for (let uid in Party.remotePlayers) {
                 const rp = Party.remotePlayers[uid];
                 const charData = CHARACTERS[rp.charId] || CHARACTERS['bruiser'];
+                
+                // Interpolate draw position towards target
+                rp.x = MathHelper.lerp(rp.x || rp.targetX, rp.targetX, 0.3);
+                rp.y = MathHelper.lerp(rp.y || rp.targetY, rp.targetY, 0.3);
+
                 ctx.globalAlpha = 0.5; // Make them ghost-like
-                // Using drawX and drawY for smooth interpolation
-                drawPlayerShape(ctx, rp.drawX, rp.drawY, 15, rp.skin, charData.color);
+                drawPlayerShape(ctx, rp.x, rp.y, 15, rp.skin, charData.color, rp.hp, rp.maxHp);
                 
                 // Nametag
                 ctx.globalAlpha = 0.8;
                 ctx.font = '10px "JetBrains Mono"'; ctx.fillStyle = '#a855f7'; ctx.textAlign = 'center';
-                ctx.fillText(rp.name, rp.drawX, rp.drawY - 25);
+                ctx.fillText(rp.name, rp.x, rp.y - 25);
                 ctx.globalAlpha = 1.0;
             }
 
-            drawPlayerShape(ctx, state.player.x, state.player.y, state.player.radius, state.player.skin, state.player.color);
+            drawPlayerShape(ctx, state.player.x, state.player.y, state.player.radius, state.player.skin, state.player.color, state.player.stats.hp, state.player.stats.maxHp, state.player.shield, state.player.effects.maxShield);
 
             for(let d of state.drones) { ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : '#cbd5e1'; ctx.beginPath(); MathHelper.drawPoly(ctx, d.x, d.y, 6, 3, state.gameTime*2); p.skin === 'wireframe' ? ctx.stroke() : ctx.fill(); }
             for(let b of state.blades) {
@@ -1894,6 +1938,13 @@
                     ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (pt.life/pt.maxLife)})`; ctx.lineWidth = 8; ctx.stroke();
                     ctx.restore(); ctx.globalAlpha = 1.0; continue;
                 }
+                else if (pt.type === 'vertical_beam') {
+                    let progress = pt.life / pt.maxLife;
+                    ctx.fillStyle = pt.color; ctx.globalAlpha = progress * 0.5;
+                    ctx.fillRect(pt.x - pt.radius, pt.y - 2000, pt.radius * 2, 4000);
+                    ctx.fillStyle = '#fff'; ctx.globalAlpha = progress;
+                    ctx.fillRect(pt.x - pt.radius*0.2, pt.y - 2000, pt.radius * 0.4 * progress, 4000);
+                }
                 else if(pt.isLine) { ctx.lineWidth = 1; ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.targetX, pt.targetY); ctx.stroke(); }
                 else if(pt.isPulse) { ctx.lineWidth = 2; let progress = 1 - (pt.life / (pt.maxLife || 0.3)); let r = Math.max(0.1, pt.size * progress); ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); ctx.stroke(); } 
                 else { ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI*2); ctx.fill(); }
@@ -1910,14 +1961,22 @@
             if (state.worldEvent.active === "BLOOD_MOON") { ctx.fillStyle = 'rgba(220, 38, 38, 0.15)'; ctx.fillRect(0, 0, vw, vh); }
         }
 
-        function drawPlayerShape(ctx, x, y, radius, skin, color) {
+        function drawPlayerShape(ctx, x, y, radius, skin, color, hp, maxHp, shield = 0, maxShield = 0) {
             ctx.save();
             ctx.translate(x, y);
             
+            // Shield Aura Visual
+            if (maxShield > 0) {
+                const sRatio = shield / maxShield;
+                ctx.beginPath(); ctx.arc(0, 0, radius + 10 + Math.sin(state.gameTime*5)*2, 0, Math.PI*2);
+                ctx.fillStyle = `rgba(56, 189, 248, ${0.1 * sRatio})`; ctx.fill();
+                ctx.strokeStyle = `rgba(56, 189, 248, ${0.4 * sRatio})`; ctx.lineWidth = 2; ctx.stroke();
+            }
+
             if(skin === 'cyber') { ctx.shadowBlur = 10; ctx.shadowColor = '#0ff'; ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2; ctx.fillStyle = 'rgba(0, 255, 255, 0.1)'; }
             if(skin === 'cosmic') { ctx.fillStyle = '#0f172a'; ctx.shadowBlur = 15; ctx.shadowColor = '#8b5cf6'; }
             if(skin === 'abyssal') { ctx.fillStyle = '#000'; ctx.strokeStyle = '#7e22ce'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#4c1d95'; }
-            if(skin === 'glitch') { if(Math.random()<0.2) ctx.translate(MathHelper.rand(-3,3), MathHelper.rand(-3,3)); }
+            if(skin === 'glitch') { if(seededRandom()<0.2) ctx.translate(MathHelper.rand(-3,3), MathHelper.rand(-3,3)); }
             if(skin === 'blueprint') { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.fillStyle = 'transparent'; }
             if(skin === 'wireframe') { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.fillStyle = 'transparent'; }
 
@@ -1935,6 +1994,18 @@
             }
 
             ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2); ctx.fill();
+            
+            // In-world HP Bar
+            if (hp !== undefined && maxHp !== undefined && hp < maxHp) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-15, radius + 5, 30, 4);
+                ctx.fillStyle = '#10b981'; ctx.fillRect(-15, radius + 5, 30 * Math.max(0, hp/maxHp), 4);
+            }
+            // In-world Shield Bar
+            if (shield !== undefined && maxShield !== undefined && maxShield > 0) {
+                ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(-15, radius + 10, 30, 2);
+                ctx.fillStyle = '#38bdf8'; ctx.fillRect(-15, radius + 10, 30 * Math.max(0, shield/maxShield), 2);
+            }
+
             ctx.restore();
         }
 
@@ -1971,7 +2042,7 @@
             SaveSystem.save();
 
             if (Party.id) {
-                Party.leave(); // Disconnect from party on death
+                Party.leave();
                 showSysMsg("DISCONNECTED FROM PARTY", "text-yellow-400", "bg-yellow-500/10");
             }
         }
@@ -1986,6 +2057,7 @@
 
             state.reset(charId, skinId, seed);
             state.status = 'PLAYING';
+            clearInputs();
             document.getElementById('screen-menu').classList.add('hidden'); document.getElementById('screen-gameover').classList.add('hidden'); 
             document.getElementById('screen-hud').classList.remove('hidden'); document.getElementById('screen-hud').classList.add('flex');
             
@@ -2026,6 +2098,14 @@
                 }
             }); 
         });
+
+        // Party UI Bindings
+        document.getElementById('btn-open-party').addEventListener('click', () => document.getElementById('modal-party').classList.remove('hidden'));
+        document.getElementById('btn-close-party').addEventListener('click', () => document.getElementById('modal-party').classList.add('hidden'));
+        document.getElementById('btn-create-party').addEventListener('click', () => Party.host());
+        document.getElementById('btn-join-party').addEventListener('click', () => Party.join(document.getElementById('party-code-input').value));
+        document.getElementById('btn-leave-party').addEventListener('click', () => Party.leave());
+        document.getElementById('btn-start-party').addEventListener('click', () => Party.triggerStart());
 
         document.getElementById('btn-start').addEventListener('click', () => startGame());
         document.getElementById('btn-mainmenu').addEventListener('click', () => {
