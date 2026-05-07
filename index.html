@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Battle of the Shapes: Co-op Protocol</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- PeerJS for WebRTC Peer-to-Peer Multiplayer -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Inter', sans-serif; user-select: none; }
@@ -73,7 +75,7 @@
     <!-- Game Canvas -->
     <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
 
-    <!-- Connection Status -->
+    <!-- Connection Status (replaces explicit Auth modal for a smoother experience) -->
     <div id="sys-msg-container" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2"></div>
 
     <!-- Party / Multiplayer Modal -->
@@ -358,45 +360,21 @@
         import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        // ============================================================================
-        // 🌐 GITHUB PAGES MULTIPLAYER CONFIGURATION 🌐
-        // ============================================================================
-        const MY_FIREBASE_CONFIG = {
-          apiKey: "AIzaSyD0UDtrpSNGCN4pN4GXt0dQQZSuq76n6cI",
-          authDomain: "shapes-22dc1.firebaseapp.com",
-          projectId: "shapes-22dc1",
-          storageBucket: "shapes-22dc1.firebasestorage.app",
-          messagingSenderId: "662824269651",
-          appId: "1:662824269651:web:0d67a4a23b7f32a3fed3a6",
-          measurementId: "G-DF833TXHV6"
+        // Your provided Firebase configuration
+        const appId = 'shapes-22dc1';
+        const firebaseConfig = {
+            apiKey: "AIzaSyD0UDtrpSNGCN4pN4GXt0dQQZSuq76n6cI",
+            authDomain: "shapes-22dc1.firebaseapp.com",
+            projectId: "shapes-22dc1",
+            storageBucket: "shapes-22dc1.firebasestorage.app",
+            messagingSenderId: "662824269651",
+            appId: "1:662824269651:web:0d67a4a23b7f32a3fed3a6",
+            measurementId: "G-DF833TXHV6"
         };
-        // ============================================================================
-
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'battle-shapes-v5';
         
-        let app, db, auth;
-        let isOffline = true;
-
-        // Check if we are in the chat environment OR if the user provided their own config
-        let activeConfig = null;
-        if (typeof __firebase_config !== 'undefined') {
-            activeConfig = JSON.parse(__firebase_config); // Uses chat database
-        } else if (MY_FIREBASE_CONFIG) {
-            activeConfig = MY_FIREBASE_CONFIG; // Uses your GitHub Pages database
-        }
-
-        if (activeConfig) {
-            try {
-                app = initializeApp(activeConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                isOffline = false;
-            } catch (e) {
-                console.error("Firebase init error. Falling back to Local Mode:", e);
-                isOffline = true;
-            }
-        }
-        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
         let currentUser = null;
 
         // UI Helpers
@@ -420,23 +398,9 @@
         const SaveSystem = {
             data: { shards: 0, unlockedChars: ['ronin', 'lancer', 'bruiser'], unlockedSkins: ['default'], stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 } },
             async init() {
-                this.loadLocal();
-
-                if (isOffline) {
-                    const dot = document.getElementById('sys-auth-dot');
-                    const text = document.getElementById('sys-auth-text');
-                    if(dot) { dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-yellow-500'); }
-                    if(text) text.innerText = "LOCAL MODE";
-                    return;
-                }
-
                 // Determine Auth Strategy
                 try {
-                    if (typeof __initial_auth_token !== 'undefined') {
-                        await signInWithCustomToken(auth, __initial_auth_token);
-                    } else {
-                        await signInAnonymously(auth); // Used for GitHub Pages config fallback
-                    }
+                    await signInAnonymously(auth);
                 } catch (e) {
                     console.error("Auth init failed", e);
                     showSysMsg("AUTH FAILURE - PLAYING OFFLINE", "text-rose-400", "bg-rose-500/10 border-rose-500/20");
@@ -450,30 +414,15 @@
                     if (user) {
                         dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
                         text.innerText = user.isAnonymous ? "LINKED: GUEST" : "LINKED: CLOUD";
-                        await this.loadCloud();
+                        await this.load();
                     } else {
                         dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
                         text.innerText = "OFFLINE";
                     }
                 });
             },
-            loadLocal() {
-                try {
-                    const saved = localStorage.getItem('bots_save_v5');
-                    if (saved) {
-                        const parsed = JSON.parse(saved);
-                        this.data = { ...this.data, ...parsed, stats: { ...this.data.stats, ...(parsed.stats || {}) } };
-                    }
-                } catch(e) {}
-                this.updateMenuUI();
-            },
-            saveLocal() {
-                try {
-                    localStorage.setItem('bots_save_v5', JSON.stringify(this.data));
-                } catch(e) {}
-            },
-            async loadCloud() {
-                if (!currentUser || isOffline) return;
+            async load() {
+                if (!currentUser) return;
                 try {
                     const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
                     const snap = await getDoc(saveRef);
@@ -485,15 +434,13 @@
                         await setDoc(saveRef, this.data);
                     }
                     this.updateMenuUI();
-                    this.saveLocal(); // sync local to cloud
                     showSysMsg("DATA STREAM SYNCED", "text-emerald-400", "bg-emerald-500/10 border-emerald-500/20");
                 } catch (e) {
                     console.error("Load failed", e);
                 }
             },
             async save() {
-                this.saveLocal();
-                if (!currentUser || isOffline) return;
+                if (!currentUser) return;
                 try {
                     const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
                     await setDoc(saveRef, this.data, { merge: true });
@@ -544,14 +491,17 @@
             }
         };
 
-        // --- MULTIPLAYER PARTY SYSTEM ---
+        // --- MULTIPLAYER P2P SYSTEM ---
         const Party = {
             id: null,
             isHost: false,
             data: null,
             unsub: null,
             syncInterval: null,
-            remotePlayers: {}, // { uid: { x, y, hp, maxHp, skin, charId } }
+            remotePlayers: {}, // { uid: { x, y, drawX, drawY, hp, maxHp, skin, charId } }
+            peer: null,
+            connections: {},
+            useCloudFallback: false,
 
             generateCode() {
                 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -561,15 +511,65 @@
             },
 
             getDocRef(code) {
-                return doc(db, 'artifacts', appId, 'public', 'data', 'parties', code);
+                return doc(db, 'artifacts', appId, 'public', 'parties', code);
+            },
+
+            initPeer(code) {
+                return new Promise((resolve) => {
+                    if (this.peer) this.peer.destroy();
+                    
+                    // WebRTC with Google STUN Fallbacks
+                    this.peer = new Peer(`${appId}-${code}-${currentUser.uid}`, {
+                        config: {'iceServers': [
+                            { urls: 'stun:stun.l.google.com:19302' },
+                            { urls: 'stun:stun1.l.google.com:19302' }
+                        ]}
+                    });
+
+                    // Start a 4-second timeout. If PeerJS fails to connect, fallback to Cloud.
+                    const fallbackTimeout = setTimeout(() => {
+                        console.warn("PeerJS connection timed out. Falling back to Cloud Sync.");
+                        this.useCloudFallback = true;
+                        resolve();
+                    }, 4000);
+
+                    this.peer.on('open', (id) => {
+                        clearTimeout(fallbackTimeout);
+                        console.log('My P2P ID is: ' + id);
+                        this.useCloudFallback = false;
+                        resolve();
+                    });
+
+                    this.peer.on('error', (err) => {
+                        clearTimeout(fallbackTimeout);
+                        console.warn("WebRTC Network Error:", err.type, "- Switching to Cloud Fallback");
+                        this.useCloudFallback = true;
+                        resolve(); // Resolve anyway so game doesn't crash
+                    });
+
+                    this.peer.on('connection', (conn) => {
+                        conn.on('data', (data) => {
+                            if(data.type === 'POS') {
+                                if(this.remotePlayers[data.uid]) {
+                                    this.remotePlayers[data.uid].x = data.x;
+                                    this.remotePlayers[data.uid].y = data.y;
+                                    this.remotePlayers[data.uid].hp = data.hp;
+                                }
+                            }
+                        });
+                        this.connections[conn.peer] = conn;
+                    });
+                });
             },
 
             async host() {
-                if (isOffline) { showSysMsg("CO-OP REQUIRES FIREBASE CONFIG (SEE CODE)", "text-yellow-400", "bg-yellow-500/10"); return; }
                 if (!currentUser) return;
                 const code = this.generateCode();
-                const ref = this.getDocRef(code);
                 
+                showSysMsg("ESTABLISHING P2P TUNNEL...", "text-sky-400", "bg-sky-500/10");
+                await this.initPeer(code);
+
+                const ref = this.getDocRef(code);
                 const charId = document.querySelector('.char-card.selected').getAttribute('data-char');
                 const skin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
 
@@ -578,6 +578,7 @@
                         host: currentUser.uid,
                         status: 'LOBBY',
                         seed: Math.floor(Math.random() * 1000000),
+                        useCloudFallback: this.useCloudFallback, // Tell guests if we failed P2P
                         players: {
                             [currentUser.uid]: { name: `Player_${code.substring(0,2)}`, x: 0, y: 0, hp: 100, maxHp: 100, charId, skin }
                         }
@@ -591,7 +592,7 @@
                     document.getElementById('party-view-lobby').classList.remove('hidden');
                     document.getElementById('lobby-code-display').innerText = code;
                     document.getElementById('btn-start-party').classList.remove('hidden');
-                    document.getElementById('lobby-status-text').innerText = "Waiting for others to join...";
+                    document.getElementById('lobby-status-text').innerText = this.useCloudFallback ? "P2P blocked. Using Cloud Relay." : "P2P Tunnel Active. Waiting...";
                     document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
                     document.getElementById('btn-open-party').classList.add('party-active-glow');
                     showSysMsg("PARTY HOSTED SUCCESSFULLY");
@@ -599,24 +600,22 @@
             },
 
             async join(code) {
-                if (isOffline) { showSysMsg("CO-OP REQUIRES FIREBASE CONFIG (SEE CODE)", "text-yellow-400", "bg-yellow-500/10"); return; }
                 if (!currentUser || !code) return;
                 code = code.toUpperCase();
                 const ref = this.getDocRef(code);
                 
                 try {
                     const snap = await getDoc(ref);
-                    if (!snap.exists()) {
-                        showSysMsg("SESSION NOT FOUND", "text-rose-400", "bg-rose-500/10");
-                        return;
-                    }
-                    if (snap.data().status !== 'LOBBY') {
-                        showSysMsg("SESSION ALREADY IN PROGRESS", "text-rose-400", "bg-rose-500/10");
-                        return;
-                    }
-                    if (Object.keys(snap.data().players).length >= 4) {
-                        showSysMsg("SESSION FULL", "text-yellow-400", "bg-yellow-500/10");
-                        return;
+                    if (!snap.exists()) { showSysMsg("SESSION NOT FOUND", "text-rose-400", "bg-rose-500/10"); return; }
+                    if (snap.data().status !== 'LOBBY') { showSysMsg("SESSION ALREADY IN PROGRESS", "text-rose-400", "bg-rose-500/10"); return; }
+                    if (Object.keys(snap.data().players).length >= 4) { showSysMsg("SESSION FULL", "text-yellow-400", "bg-yellow-500/10"); return; }
+
+                    // If host is on fallback, force guest onto fallback too
+                    if(snap.data().useCloudFallback) {
+                        this.useCloudFallback = true;
+                    } else {
+                        showSysMsg("CONNECTING P2P TUNNEL...", "text-sky-400", "bg-sky-500/10");
+                        await this.initPeer(code);
                     }
 
                     const charId = document.querySelector('.char-card.selected').getAttribute('data-char');
@@ -634,7 +633,7 @@
                     document.getElementById('party-view-lobby').classList.remove('hidden');
                     document.getElementById('lobby-code-display').innerText = code;
                     document.getElementById('btn-start-party').classList.add('hidden');
-                    document.getElementById('lobby-status-text').innerText = "Awaiting Host to start...";
+                    document.getElementById('lobby-status-text').innerText = this.useCloudFallback ? "Using Cloud Relay. Awaiting Host..." : "P2P Active. Awaiting Host...";
                     document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
                     document.getElementById('btn-open-party').classList.add('party-active-glow');
                     document.getElementById('btn-start').innerText = "WAITING FOR HOST...";
@@ -644,7 +643,7 @@
             },
 
             async leave() {
-                if (!this.id || !currentUser || isOffline) return;
+                if (!this.id || !currentUser) return;
                 const ref = this.getDocRef(this.id);
                 try {
                     if (this.isHost) {
@@ -660,10 +659,12 @@
             cleanup() {
                 if (this.unsub) this.unsub();
                 if (this.syncInterval) clearInterval(this.syncInterval);
+                if (this.peer) this.peer.destroy();
                 this.id = null;
                 this.isHost = false;
                 this.data = null;
                 this.remotePlayers = {};
+                this.connections = {};
                 
                 document.getElementById('party-view-select').classList.remove('hidden');
                 document.getElementById('party-view-lobby').classList.add('hidden');
@@ -676,7 +677,6 @@
 
             startListening() {
                 if (this.unsub) this.unsub();
-                if (isOffline) return;
                 const ref = this.getDocRef(this.id);
                 
                 this.unsub = onSnapshot(ref, (snap) => {
@@ -707,19 +707,44 @@
                     }
 
                     // Handle Game Start
-                    if (this.data.status === 'PLAYING' && typeof state !== 'undefined' && state.status === 'MENU') {
+                    if (this.data.status === 'PLAYING' && state.status === 'MENU') {
                         document.getElementById('modal-party').classList.add('hidden');
+                        
+                        // If P2P is active, establish connections to everyone else
+                        if(!this.useCloudFallback) {
+                            for (let uid in this.data.players) {
+                                if (uid !== currentUser.uid) {
+                                    const conn = this.peer.connect(`${appId}-${this.id}-${uid}`);
+                                    this.connections[uid] = conn;
+                                }
+                            }
+                        }
+
                         startGame(this.data.seed); // Pass shared seed
                     }
 
-                    // Update remote players in game
-                    if (typeof state !== 'undefined' && state.status === 'PLAYING') {
-                        this.remotePlayers = {};
+                    // In Game Updates
+                    if (state.status === 'PLAYING') {
+                        // Create tracking objects for new players
                         for (let uid in this.data.players) {
-                            if (uid !== currentUser.uid) {
+                            if (uid !== currentUser.uid && !this.remotePlayers[uid]) {
                                 this.remotePlayers[uid] = this.data.players[uid];
+                                this.remotePlayers[uid].drawX = this.remotePlayers[uid].x; // Set initial lerp values
+                                this.remotePlayers[uid].drawY = this.remotePlayers[uid].y;
                             }
                         }
+                        
+                        // If using Cloud Fallback, update coordinates from Firestore snapshot
+                        if (this.useCloudFallback) {
+                            for (let uid in this.remotePlayers) {
+                                if (this.data.players[uid]) {
+                                    this.remotePlayers[uid].x = this.data.players[uid].x;
+                                    this.remotePlayers[uid].y = this.data.players[uid].y;
+                                    this.remotePlayers[uid].hp = this.data.players[uid].hp;
+                                }
+                            }
+                        }
+                        
                         this.updatePartyHUD();
                     }
                 }, (error) => {
@@ -728,26 +753,41 @@
             },
 
             async triggerStart() {
-                if (!this.isHost || !this.id || isOffline) return;
+                if (!this.isHost || !this.id) return;
                 try {
                     await updateDoc(this.getDocRef(this.id), { status: 'PLAYING' });
                 } catch(e) { console.error("Start error", e); }
             },
 
             startSyncing() {
-                if (!this.id || !currentUser || isOffline) return;
-                // Sync position every 150ms to save Firestore reads/writes while keeping it somewhat smooth
+                if (!this.id || !currentUser) return;
+                
+                // If WebRTC is active, broadcast 20 times a second (50ms). It's free!
+                // If Cloud Fallback is active, upload ~6 times a second (150ms) to save quota.
+                const intervalTime = this.useCloudFallback ? 150 : 50;
+
                 this.syncInterval = setInterval(async () => {
                     if (state.status !== 'PLAYING') return;
-                    try {
-                        const p = state.player;
-                        await updateDoc(this.getDocRef(this.id), {
-                            [`players.${currentUser.uid}.x`]: Math.floor(p.x),
-                            [`players.${currentUser.uid}.y`]: Math.floor(p.y),
-                            [`players.${currentUser.uid}.hp`]: Math.floor(p.stats.hp)
-                        });
-                    } catch(e) {}
-                }, 150);
+                    const p = state.player;
+                    
+                    if (this.useCloudFallback) {
+                        try {
+                            await updateDoc(this.getDocRef(this.id), {
+                                [`players.${currentUser.uid}.x`]: Math.floor(p.x),
+                                [`players.${currentUser.uid}.y`]: Math.floor(p.y),
+                                [`players.${currentUser.uid}.hp`]: Math.floor(p.stats.hp)
+                            });
+                        } catch(e) {}
+                    } else {
+                        // WebRTC P2P Data Blast
+                        const payload = { type: 'POS', uid: currentUser.uid, x: Math.floor(p.x), y: Math.floor(p.y), hp: Math.floor(p.stats.hp) };
+                        for(let uid in this.connections) {
+                            if(this.connections[uid] && this.connections[uid].open) {
+                                this.connections[uid].send(payload);
+                            }
+                        }
+                    }
+                }, intervalTime);
             },
 
             updatePartyHUD() {
@@ -770,7 +810,6 @@
 
         // UI Bindings for Party
         document.getElementById('btn-open-party').addEventListener('click', () => {
-            if (isOffline) { showSysMsg("CO-OP REQUIRES FIREBASE CONFIG (SEE CODE)", "text-yellow-400", "bg-yellow-500/10"); return; }
             if (!currentUser) { showSysMsg("MUST CONNECT TO MAINFRAME FIRST", "text-yellow-400", "bg-yellow-500/10"); return; }
             document.getElementById('modal-party').classList.remove('hidden');
         });
@@ -783,7 +822,6 @@
         });
         document.getElementById('btn-leave-party').addEventListener('click', () => Party.leave());
         document.getElementById('btn-start-party').addEventListener('click', () => Party.triggerStart());
-
 
         // --- GAME ENGINE ---
         
@@ -1275,6 +1313,13 @@
             
             const dt = dtReal * state.timeScale;
             state.gameTime += dtReal;
+
+            // Interpolate remote players for smoothness
+            for (let uid in Party.remotePlayers) {
+                let rp = Party.remotePlayers[uid];
+                rp.drawX = MathHelper.lerp(rp.drawX, rp.x, 10 * dtReal);
+                rp.drawY = MathHelper.lerp(rp.drawY, rp.y, 10 * dtReal);
+            }
 
             // DPS Calc
             if (Math.floor(state.gameTime) > p.runStats.lastSecTime) {
@@ -1804,17 +1849,18 @@
                 ctx.shadowBlur = 0;
             }
 
-            // Render Remote Players (Ghosts)
+            // Render Remote Players (Ghosts) using Lerped coordinates
             for (let uid in Party.remotePlayers) {
                 const rp = Party.remotePlayers[uid];
                 const charData = CHARACTERS[rp.charId] || CHARACTERS['bruiser'];
                 ctx.globalAlpha = 0.5; // Make them ghost-like
-                drawPlayerShape(ctx, rp.x, rp.y, 15, rp.skin, charData.color);
+                // Using drawX and drawY for smooth interpolation
+                drawPlayerShape(ctx, rp.drawX, rp.drawY, 15, rp.skin, charData.color);
                 
                 // Nametag
                 ctx.globalAlpha = 0.8;
                 ctx.font = '10px "JetBrains Mono"'; ctx.fillStyle = '#a855f7'; ctx.textAlign = 'center';
-                ctx.fillText(rp.name, rp.x, rp.y - 25);
+                ctx.fillText(rp.name, rp.drawX, rp.drawY - 25);
                 ctx.globalAlpha = 1.0;
             }
 
@@ -1946,7 +1992,7 @@
             updateHUD();
             updateTrackerUI();
             
-            if (Party.id && !isOffline) {
+            if (Party.id) {
                 Party.startSyncing();
             }
         }
@@ -2003,6 +2049,3 @@
     </script>
 </body>
 </html>
-
-
-but can it sync movement and sync killing shapes? and all other data?
