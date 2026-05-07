@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Battle of the Shapes</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Inter', sans-serif; user-select: none; }
+        .font-mono { font-family: 'JetBrains Mono', monospace; }
+        
+        .glass-panel { 
+            background: rgba(15, 15, 20, 0.65); 
+            backdrop-filter: blur(16px); 
+            -webkit-backdrop-filter: blur(16px); 
+            border: 1px solid rgba(255, 255, 255, 0.08); 
+        }
+        
+        .char-card { transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1); opacity: 0.6; filter: grayscale(50%); }
+        .char-card:hover { opacity: 0.8; transform: translateY(-2px); }
+        .char-card.selected { 
+            opacity: 1; filter: grayscale(0%);
+            border-color: #38bdf8; 
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.05) 0%, rgba(15, 15, 20, 0.8) 100%);
+            box-shadow: 0 10px 40px rgba(56, 189, 248, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2); 
+            transform: translateY(-4px); 
+        }
+        
+        .skin-btn { transition: all 0.2s ease; opacity: 0.5; }
+        .skin-btn:hover { opacity: 0.8; }
+        .skin-btn.selected { 
+            opacity: 1; background-color: #e0f2fe; color: #0f172a; 
+            border-color: #e0f2fe; font-weight: bold; box-shadow: 0 0 15px rgba(224, 242, 254, 0.5); 
+        }
+        
+        .upgrade-card { 
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1); 
+            background: rgba(20, 20, 25, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        .upgrade-card:hover { 
+            transform: translateY(-8px) scale(1.02); 
+            background: rgba(30, 30, 40, 0.9);
+            border-color: rgba(255, 255, 255, 0.2); 
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5); 
+        }
+
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        
+        .radial-bg { background: radial-gradient(circle at 50% 0%, rgba(30,30,40,1) 0%, rgba(5,5,5,1) 70%); }
+        .text-glow { text-shadow: 0 0 20px currentColor; }
+    </style>
+</head>
+<body class="w-screen h-screen relative flex items-center justify-center text-slate-100 overflow-hidden">
+
+    <!-- Game Canvas -->
+    <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
+
+    <div id="modal-update-log" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
+        <div class="glass-panel w-full max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10">
+            <div class="p-6 border-b border-white/5 flex justify-between items-center">
+                <h2 class="text-2xl font-black tracking-tight text-white">PATCH NOTES</h2>
+                <button id="btn-close-log" class="text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
+            </div>
+            <div class="p-8 overflow-y-auto font-mono text-sm text-slate-300 space-y-8">
+                <div>
+                    <h3 class="text-sky-400 font-bold text-lg mb-3 flex items-center gap-3">
+                        <span class="bg-sky-500/20 px-2 py-1 rounded text-sky-300 text-xs tracking-widest font-sans uppercase">v2.1.0</span> 
+                        Trapper Rework & New Anomalies
+                    </h3>
+                    <ul class="list-disc pl-5 space-y-2 text-slate-400">
+                        <li><strong class="text-white">Trapper Overhaul:</strong> Trapper now calls down devastating orbital lasers on nearby enemies instead of dropping mines.</li>
+                        <li><strong class="text-white">Strict Range Limits:</strong> All summons and special abilities strictly obey their class Attack Range. No more global sniping.</li>
+                        <li><strong class="text-white">Kill-Based Anomalies:</strong> World events now trigger exactly every 300 kills.</li>
+                        <li><strong class="text-white">Time Distortion:</strong> New anomaly! The matrix slows down for enemies while you move and shoot at normal speed.</li>
+                        <li><strong class="text-white">Blood Moon:</strong> New anomaly! Enemies move 50% faster and spawn at 5x the normal rate. Pure chaos.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-menu" class="absolute inset-0 z-10 flex flex-col radial-bg pointer-events-auto">
+        <div class="w-full flex-1 flex flex-col md:flex-row max-w-7xl mx-auto h-full p-6 md:p-12 gap-12">
+            
+            <div class="w-full md:w-1/3 flex flex-col justify-center relative">
+                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs font-mono text-sky-400 w-max mb-6">SYSTEM v2.1.0 ONLINE</div>
+                <h1 class="text-5xl md:text-7xl font-black text-white mb-4 tracking-tighter leading-none">
+                    BATTLE<br>OF THE<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-500">SHAPES</span>
+                </h1>
+                <p class="text-slate-400 font-medium text-sm mb-12 leading-relaxed max-w-sm">Survive the geometric anomaly. Adapt your build. Slay the bosses. Never stop moving.</p>
+                <button id="btn-show-log" class="text-left w-max px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-300 font-mono text-xs hover:bg-white/10 transition-colors flex items-center gap-3">
+                    View Patch Notes &rarr;
+                </button>
+            </div>
+
+            <div class="w-full md:w-2/3 flex flex-col justify-center overflow-y-auto pb-10">
+                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">1. Select Class</p>
+                
+                <div class="grid grid-cols-3 gap-3 mb-10 shrink-0">
+                    <div class="char-card selected glass-panel rounded-xl p-4 cursor-pointer" data-char="ronin">
+                        <h3 class="text-lg font-bold text-rose-400 mb-1">RONIN</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Massive 360° spinning slash.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="lancer">
+                        <h3 class="text-lg font-bold text-teal-400 mb-1">LANCER</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Rapid piercing forward thrusts.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="paladin">
+                        <h3 class="text-lg font-bold text-yellow-500 mb-1">PALADIN</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Close-range pulsing AoE & Armor.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="bruiser">
+                        <h3 class="text-lg font-bold text-orange-400 mb-1">BRUISER</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Close-range 3-shot spread.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="ranger">
+                        <h3 class="text-lg font-bold text-emerald-400 mb-1">MARINE</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Extreme fire-rate auto-rifle.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="channeler">
+                        <h3 class="text-lg font-bold text-purple-400 mb-1">CHANNELER</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Continuous auto-locking beam.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="trapper">
+                        <h3 class="text-lg font-bold text-lime-400 mb-1">TRAPPER</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Calls down orbital strikes.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="architect">
+                        <h3 class="text-lg font-bold text-zinc-300 mb-1">ARCHITECT</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Starts with Drones & Shields.</p>
+                    </div>
+                    <div class="char-card glass-panel rounded-xl p-4 cursor-pointer" data-char="alchemist">
+                        <h3 class="text-lg font-bold text-cyan-400 mb-1">ALCHEMIST</h3>
+                        <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Bouncing multi-status orbs.</p>
+                    </div>
+                </div>
+
+                <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">2. Select Aesthetic</p>
+                <div class="flex flex-wrap gap-2 mb-10 shrink-0">
+                    <button class="skin-btn selected px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="default">Default</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="cyber">Cyber</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="cosmic">Cosmic</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="infernal">Infernal</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="radiant">Radiant</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="abyssal">Abyssal</button>
+                    <button class="skin-btn px-4 py-2 border border-white/10 rounded-full bg-white/5 text-xs font-mono" data-skin="glitch">Glitch</button>
+                </div>
+
+                <button id="btn-start" class="w-full py-5 bg-white text-black hover:bg-sky-100 font-bold tracking-widest text-lg rounded-xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] flex justify-center items-center gap-3 active:scale-[0.98]">
+                    INITIATE SEQUENCE &rarr;
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden flex-col justify-between p-6 md:p-10">
+        <div class="flex justify-between items-start w-full relative">
+            <div id="boss-hp-container" class="absolute top-0 left-1/2 transform -translate-x-1/2 w-full max-w-lg hidden flex-col items-center">
+                <span class="font-mono font-bold text-xs text-red-500 mb-2 tracking-[0.2em]" id="boss-name">ANOMALY</span>
+                <div class="w-full h-2 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-red-900/30">
+                    <div id="boss-hp-fill" class="h-full bg-red-500 w-full transition-all duration-100"></div>
+                </div>
+            </div>
+
+            <div class="flex flex-col gap-3 w-1/3 max-w-[250px]">
+                <div class="flex items-center gap-4">
+                    <span class="font-mono font-bold text-sm text-sky-400 w-12" id="hud-level">LVL 1</span>
+                    <div class="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
+                        <div id="hud-xp-fill" class="h-full bg-sky-400 w-0 transition-all duration-300"></div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span class="font-mono font-bold text-xs text-emerald-400 w-12">HP</span>
+                    <div class="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden relative">
+                        <div id="hud-hp-fill" class="h-full bg-emerald-400 w-full transition-all duration-300"></div>
+                    </div>
+                </div>
+                <div class="flex items-center gap-4 hidden" id="hud-shield-container">
+                    <span class="font-mono font-bold text-xs text-blue-400 w-12">SHIELD</span>
+                    <div class="flex-1 h-1 bg-white/10 rounded-full overflow-hidden relative">
+                        <div id="hud-shield-fill" class="h-full bg-blue-400 w-0 transition-all duration-300"></div>
+                    </div>
+                </div>
+                <div class="text-[10px] font-mono text-slate-500 mt-2 flex items-center gap-3">
+                    <span><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">U</kbd> Upgrades</span>
+                    <span><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">SPACE</kbd> Dash</span>
+                </div>
+            </div>
+            
+            <div class="flex flex-col items-end gap-1">
+                <div class="font-mono font-light text-4xl text-white tracking-tighter" id="hud-time">00:00</div>
+                <div class="font-mono text-xs text-slate-400 uppercase tracking-widest mt-1" id="hud-kills">0 KILLS</div>
+                <div class="font-mono font-bold text-xs text-fuchsia-400 mt-2 px-3 py-1 bg-fuchsia-500/10 rounded-full border border-fuchsia-500/20 hidden" id="hud-combo">COMBO x1.0</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-tracker" class="absolute right-0 top-24 bottom-10 w-72 glass-panel border-r-0 hidden flex-col p-6 rounded-l-2xl z-15 shadow-2xl transform translate-x-full transition-transform duration-500 pointer-events-auto">
+        <h2 class="font-mono font-bold text-xs text-sky-400 tracking-widest mb-4 border-b border-white/10 pb-4 flex justify-between items-center">
+            ACTIVE MODULES <span class="text-slate-500 text-[10px] font-normal">Press U</span>
+        </h2>
+        <div id="tracker-list" class="flex-1 overflow-y-auto pr-2 space-y-3 font-mono text-xs custom-scrollbar text-slate-300"></div>
+    </div>
+
+    <div id="screen-levelup" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-lg hidden pointer-events-auto">
+        <div class="text-center mb-12">
+            <h2 class="text-4xl font-black text-white tracking-tight mb-2">SYSTEM UPGRADE</h2>
+            <p class="text-sky-400 font-mono text-sm tracking-widest uppercase">Select augmentation</p>
+        </div>
+        <div id="upgrade-container" class="flex flex-col md:flex-row gap-6 w-full max-w-6xl px-8 flex-wrap justify-center"></div>
+    </div>
+
+    <div id="screen-gameover" class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/80 backdrop-blur-xl hidden pointer-events-auto">
+        <h1 class="text-6xl md:text-8xl font-black text-white mb-8 tracking-tighter">ANOMALY <span class="text-red-500">FATAL</span></h1>
+        
+        <div class="glass-panel p-8 rounded-2xl mb-12 text-center min-w-[360px] border border-white/10">
+            <p class="text-slate-400 font-mono text-xs tracking-widest mb-2 uppercase">Survival Time</p>
+            <p class="text-5xl font-light text-white mb-8 font-mono" id="go-time">00:00</p>
+            <div class="grid grid-cols-2 gap-6 border-t border-white/10 pt-6">
+                <div>
+                    <p class="text-slate-400 font-mono text-[10px] tracking-widest uppercase mb-1">Entities Cleared</p>
+                    <p class="text-2xl font-bold text-white" id="go-kills">0</p>
+                </div>
+                <div>
+                    <p class="text-slate-400 font-mono text-[10px] tracking-widest uppercase mb-1">Level Reached</p>
+                    <p class="text-2xl font-bold text-sky-400" id="go-level">1</p>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex flex-col sm:flex-row gap-4">
+            <button id="btn-restart" class="px-12 py-4 bg-white text-black font-bold tracking-widest text-lg rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-3">REBOOT SEQUENCE</button>
+            <button id="btn-mainmenu" class="px-8 py-4 bg-white/5 text-white font-bold tracking-widest text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3">MAIN MENU</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d', { alpha: false }); 
+        let vw, vh;
+
+        function resize() { vw = window.innerWidth; vh = window.innerHeight; canvas.width = vw; canvas.height = vh; }
+        window.addEventListener('resize', resize); resize();
+
+        const UI = {
+            menu: document.getElementById('screen-menu'), hud: document.getElementById('screen-hud'),
+            levelup: document.getElementById('screen-levelup'), gameover: document.getElementById('screen-gameover'),
+            tracker: document.getElementById('screen-tracker'), trackerList: document.getElementById('tracker-list'),
+            xpFill: document.getElementById('hud-xp-fill'), hpFill: document.getElementById('hud-hp-fill'),
+            shieldContainer: document.getElementById('hud-shield-container'), shieldFill: document.getElementById('hud-shield-fill'), 
+            levelText: document.getElementById('hud-level'), timeText: document.getElementById('hud-time'), 
+            killsText: document.getElementById('hud-kills'), comboText: document.getElementById('hud-combo'), 
+            upgradeContainer: document.getElementById('upgrade-container'),
+            charCards: document.querySelectorAll('.char-card'), skinBtns: document.querySelectorAll('.skin-btn'),
+            bossContainer: document.getElementById('boss-hp-container'), bossHpFill: document.getElementById('boss-hp-fill'), 
+            bossName: document.getElementById('boss-name'),
+            modalUpdateLog: document.getElementById('modal-update-log'), btnShowLog: document.getElementById('btn-show-log'), btnCloseLog: document.getElementById('btn-close-log')
+        };
+
+        const CHARACTERS = {
+            // Melee
+            'ronin': { color: '#fb7185', stats: { weaponType: 'spin', maxHp: 150, speed: 290, damage: 70, fireRate: 1.5, pickupRange: 100, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 160, pierce: 0, armor: 2, regen: 0.5, critChance: 0.2, critMult: 2.0, lifesteal: 0, dodge: 0.15, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 1.5 } },
+            'lancer': { color: '#2dd4bf', stats: { weaponType: 'normal', maxHp: 130, speed: 260, damage: 35, fireRate: 2.5, pickupRange: 90, projectileSpeed: 1200, projectiles: 1, spread: 0, attackRange: 200, pierce: 999, armor: 2, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 1.5, dashCooldown: 2 } },
+            'paladin': { color: '#eab308', stats: { weaponType: 'pulse', maxHp: 200, speed: 180, damage: 75, fireRate: 1.0, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 220, pierce: 0, armor: 10, regen: 1.0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 4 } },
+            // Projectile
+            'bruiser': { color: '#fb923c', stats: { weaponType: 'normal', maxHp: 180, speed: 200, damage: 25, fireRate: 1.2, pickupRange: 80, projectileSpeed: 600, projectiles: 3, spread: 0.5, attackRange: 400, pierce: 0, armor: 5, regen: 0.5, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } },
+            'ranger': { color: '#34d399', stats: { weaponType: 'normal', maxHp: 100, speed: 240, damage: 15, fireRate: 6.0, pickupRange: 110, projectileSpeed: 800, projectiles: 1, spread: 0, attackRange: 600, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0.05, bounce: 0, homing: 0, explodeRadius: 0, scale: 0.8, dashCooldown: 2 } },
+            'channeler': { color: '#c084fc', stats: { weaponType: 'beam', maxHp: 90, speed: 230, damage: 150, fireRate: 10, pickupRange: 110, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 450, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 2.5 } },
+            // Gimmick
+            'trapper': { color: '#a3e635', stats: { weaponType: 'orbital', maxHp: 100, speed: 280, damage: 80, fireRate: 1.5, pickupRange: 120, projectileSpeed: 0, projectiles: 1, spread: 0, attackRange: 350, pierce: 0, armor: 0, regen: 0, critChance: 0.1, critMult: 1.5, lifesteal: 0, dodge: 0.1, bounce: 0, homing: 0, explodeRadius: 100, scale: 1, dashCooldown: 1.5 } },
+            'architect': { color: '#d4d4d8', stats: { weaponType: 'normal', maxHp: 110, speed: 210, damage: 25, fireRate: 1.5, pickupRange: 150, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 400, pierce: 0, armor: 0, regen: 0, critChance: 0, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 0, homing: 0, explodeRadius: 0, scale: 1, dashCooldown: 3 } }, 
+            'alchemist': { color: '#22d3ee', stats: { weaponType: 'normal', maxHp: 90, speed: 190, damage: 30, fireRate: 1.2, pickupRange: 100, projectileSpeed: 400, projectiles: 1, spread: 0, attackRange: 800, pierce: 0, armor: 0, regen: 0, critChance: 0.05, critMult: 1.5, lifesteal: 0, dodge: 0, bounce: 3, homing: 0.02, explodeRadius: 0, scale: 1.2, dashCooldown: 2.5 }, effects: { poison: 1, freeze: 1, burn: 1 } }
+        };
+
+        const SHAPES = [
+            { type: 'triangle', sides: 3, radius: 12, erratic: false },
+            { type: 'square', sides: 4, radius: 14, erratic: false },
+            { type: 'pentagon', sides: 5, radius: 16, erratic: false },
+            { type: 'hexagon', sides: 6, radius: 13, erratic: false },
+            { type: 'circle', sides: 0, radius: 10, erratic: false },
+            { type: 'diamond', sides: 4, radius: 12, erratic: true }
+        ];
+
+        const TIERS = [
+            { color: '#ef4444', name: "Red", hpM: 1, spdM: 1, dmgM: 1, xp: 1 },
+            { color: '#f97316', name: "Orange", hpM: 1.5, spdM: 1.05, dmgM: 1.2, xp: 2 },
+            { color: '#eab308', name: "Yellow", hpM: 2.5, spdM: 1.1, dmgM: 1.5, xp: 3 },
+            { color: '#22c55e', name: "Green", hpM: 4, spdM: 1.15, dmgM: 2, xp: 4 },
+            { color: '#06b6d4', name: "Cyan", hpM: 6, spdM: 1.2, dmgM: 2.5, xp: 5 },
+            { color: '#3b82f6', name: "Blue", hpM: 9, spdM: 1.25, dmgM: 3, xp: 7 },
+            { color: '#a855f7', name: "Purple", hpM: 13, spdM: 1.3, dmgM: 4, xp: 10 },
+            { color: '#d946ef', name: "Magenta", hpM: 18, spdM: 1.35, dmgM: 5, xp: 14 },
+            { color: '#f59e0b', name: "Gold", hpM: 25, spdM: 1.4, dmgM: 6.5, xp: 20 },
+            { color: '#f8fafc', name: "White", hpM: 35, spdM: 1.5, dmgM: 8, xp: 30 }
+        ];
+
+        const ELITE_TYPES = [
+            { name: "Juggernaut", hpMult: 10, speedMult: 0.5, dmgMult: 2, scale: 2, color: '#991b1b', type: 'hexagon', behavior: 'push' },
+            { name: "Sprinter", hpMult: 3, speedMult: 2.0, dmgMult: 1, scale: 1.2, color: '#fde047', type: 'triangle', behavior: 'dodge' },
+            { name: "Splitter", hpMult: 5, speedMult: 0.8, dmgMult: 1, scale: 1.5, color: '#c084fc', type: 'square', behavior: 'split' },
+            { name: "Vanguard", hpMult: 8, speedMult: 0.7, dmgMult: 1.5, scale: 1.4, color: '#cbd5e1', type: 'pentagon', behavior: 'shield' },
+            { name: "Artillery", hpMult: 4, speedMult: 0.4, dmgMult: 1, scale: 1.3, color: '#ea580c', type: 'circle', behavior: 'mortar' }
+        ];
+
+        const BOSS_TEMPLATES = [
+            { name: 'OMEGA POLYGON', sides: 12, color: '#f43f5e', hpMode: 1500, behavior: 'ring' },
+            { name: 'STAR WEAVER', sides: 5, color: '#fcd34d', hpMode: 2000, behavior: 'spiral' },
+            { name: 'VOID ORB', sides: 0, color: '#581c87', hpMode: 2500, behavior: 'pull' },
+            { name: 'SERPENT HEX', sides: 6, color: '#10b981', hpMode: 1800, behavior: 'dash' },
+            { name: 'FRACTAL CROWN', sides: 8, color: '#38bdf8', hpMode: 2200, behavior: 'laser' },
+            { name: 'DECA-CORE', sides: 10, color: '#fb923c', hpMode: 3000, behavior: 'shotgun' }
+        ];
+
+        const UPGRADES_DB = [
+            // Core Offense
+            { id: 'proj_up', title: 'Multishot', desc: '+1 Projectile per attack.', color: 'text-sky-300', excludeWeapons: ['beam', 'spin', 'pulse'], apply: p => p.stats.projectiles++ },
+            { id: 'pierce_up', title: 'Armor Piercing', desc: 'Projectiles pass through +1 enemy.', color: 'text-indigo-400', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.pierce++ },
+            { id: 'bounce_up', title: 'Ricochet', desc: 'Projectiles bounce to nearby enemies.', color: 'text-indigo-300', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.bounce++ },
+            { id: 'homing_up', title: 'Smart Targeting', desc: 'Projectiles track enemies slightly.', color: 'text-fuchsia-400', excludeWeapons: ['beam', 'spin', 'pulse', 'orbital'], apply: p => p.stats.homing += 0.05 },
+            { id: 'explode_up', title: 'Explosive Payload', desc: 'Adds/increases AoE damage on hit.', color: 'text-rose-500', excludeWeapons: ['beam', 'pulse'], apply: p => { p.stats.explodeRadius = (p.stats.explodeRadius || 0) + 60; } },
+            { id: 'dmg_up', title: 'Hollow Points', desc: '+20% Base Damage.', color: 'text-red-400', apply: p => p.stats.damage *= 1.20 },
+            { id: 'fire_up', title: 'Overclocked Trigger', desc: '+25% Fire Rate.', color: 'text-amber-400', apply: p => p.stats.fireRate *= 1.25 },
+            { id: 'crit_up', title: 'Lethality', desc: '+10% Crit Chance, +30% Crit DMG.', color: 'text-yellow-300', apply: p => { p.stats.critChance = Math.min(1, p.stats.critChance + 0.1); p.stats.critMult += 0.3; } },
+
+            // Elemental / Status
+            { id: 'bleed_up', title: 'Serrated Edges', desc: 'Hits apply stacking Bleed over time.', color: 'text-rose-600', apply: p => p.effects.bleed = (p.effects.bleed || 0) + 1 },
+            { id: 'poison_up', title: 'Toxic Coating', desc: 'Hits apply stacking Poison (% Max HP damage).', color: 'text-green-500', apply: p => p.effects.poison = (p.effects.poison || 0) + 1 },
+            { id: 'freeze_up', title: 'Cryo Rounds', desc: 'Hits temporarily freeze and slow enemies.', color: 'text-cyan-300', apply: p => p.effects.freeze = (p.effects.freeze || 0) + 1 },
+            { id: 'burn_up', title: 'Incendiary', desc: 'Hits apply stacking Burn damage.', color: 'text-orange-500', apply: p => p.effects.burn = (p.effects.burn || 0) + 1 },
+            { id: 'lightning_up', title: 'Tesla Coil', desc: 'Damage arcs to nearby enemies.', color: 'text-yellow-200', apply: p => p.effects.lightning = (p.effects.lightning || 0) + 1 },
+            { id: 'singularity', title: 'Singularity', desc: 'Attacks have 10% chance to spawn a Black Hole.', color: 'text-purple-500', apply: p => p.effects.singularity = (p.effects.singularity || 0) + 1 },
+
+            // Synergies & Evolutions (Conditionals)
+            { id: 'bloodplague', title: 'Bloodplague', desc: 'SYNERGY: Bleeding enemies explode on death.', color: 'text-red-700', unique: true, req: ['bleed_up'], apply: p => p.effects.bloodplague = true },
+            { id: 'syn_toxic_blood', title: 'Toxic Hemorrhage', desc: 'SYNERGY: Bleeding enemies take 2x Poison damage.', color: 'text-lime-400', unique: true, req: ['bleed_up', 'poison_up'], apply: p => p.effects.toxicBlood = true },
+            { id: 'syn_frostfire', title: 'Thermal Shock', desc: 'SYNERGY: Frozen enemies take massive Burn damage and shatter.', color: 'text-orange-400', unique: true, req: ['burn_up', 'freeze_up'], apply: p => p.effects.frostfire = true },
+            { id: 'syn_blade_bleed', title: 'Sawblade Singularity', desc: 'SYNERGY: Orbital Blades now cause bleeding on hit.', color: 'text-rose-600', unique: true, req: ['blade_up', 'bleed_up'], apply: p => p.effects.bladeBleed = true },
+
+            // Survival & Mobility
+            { id: 'hp_up', title: 'Titanium Plating', desc: '+50 Max HP.', color: 'text-emerald-500', apply: p => { p.stats.maxHp += 50; p.stats.hp += 50; } },
+            { id: 'regen_up', title: 'Nanobots', desc: 'Regenerate 3 HP per second.', color: 'text-emerald-300', apply: p => p.stats.regen += 3 },
+            { id: 'lifesteal_up', title: 'Vampirism', desc: 'Heal for 2% of damage dealt.', color: 'text-red-500', apply: p => p.stats.lifesteal += 0.02 },
+            { id: 'vamp_aura', title: 'Vampiric Aura', desc: 'Drains health from enemies near you.', color: 'text-rose-800', apply: p => p.stats.vampAura = (p.stats.vampAura || 0) + 1 },
+            { id: 'spd_up', title: 'Servo Motors', desc: '+15% Move Speed.', color: 'text-teal-400', apply: p => p.stats.speed *= 1.15 },
+            { id: 'dash_cd', title: 'Lightweight Chassis', desc: 'Dash cooldown reduced by 25%.', color: 'text-slate-300', apply: p => p.stats.dashCooldown *= 0.75 },
+            { id: 'dash_exp', title: 'Blast Dash', desc: 'Dashing leaves an explosion behind.', color: 'text-orange-400', apply: p => p.stats.dashExplosion = (p.stats.dashExplosion || 0) + 1 },
+
+            // Utility & Summons
+            { id: 'magnet_up', title: 'Magnetic Core', desc: '+50% XP Pickup Range.', color: 'text-purple-300', apply: p => p.stats.pickupRange *= 1.5 },
+            { id: 'orbit_shield', title: 'Orbiting Shield', desc: 'Spawns a shield that damages enemies.', color: 'text-cyan-400', apply: p => p.summons.orbitals = (p.summons.orbitals || 0) + 1 },
+            { id: 'drone_up', title: 'Attack Drone', desc: 'Summons an autonomous attack drone.', color: 'text-zinc-300', apply: p => p.summons.drones = (p.summons.drones || 0) + 1 },
+            { id: 'blade_up', title: 'Orbital Blade', desc: 'Summons a fast spinning blade.', color: 'text-fuchsia-500', apply: p => p.summons.blades = (p.summons.blades || 0) + 1 },
+            
+            // Synergy / Special
+            { id: 'glass_cannon', title: 'Glass Cannon', desc: '+100% Damage, -50% Max HP.', color: 'text-purple-300', apply: p => { p.stats.damage *= 2.0; p.stats.maxHp = Math.max(10, Math.floor(p.stats.maxHp * 0.5)); p.stats.hp = Math.min(p.stats.hp, p.stats.maxHp); } },
+            { id: 'combo_up', title: 'Adrenaline Rush', desc: 'Consecutive hits build damage multiplier. Upgrading raises max cap.', color: 'text-pink-400', apply: p => { p.stats.hasCombo = true; p.stats.comboLevel = (p.stats.comboLevel || 0) + 1; } },
+            
+            { id: 'syn_plasma_bounce', title: 'Plasma Ricochet', desc: 'SYNERGY: Bouncing projectiles create fiery explosions.', color: 'text-orange-500', unique: true, req: ['burn_up', 'bounce_up'], apply: p => p.effects.plasmaBounce = true },
+            { id: 'syn_orbital_turret', title: 'Orbital Turrets', desc: 'SYNERGY: Orbiting shields automatically fire small lasers.', color: 'text-cyan-300', unique: true, req: ['orbit_shield', 'drone_up'], apply: p => p.effects.orbitalTurret = true }
+        ];
+
+        const MathHelper = {
+            dist: (p1, p2) => Math.hypot(p2.x - p1.x, p2.y - p1.y),
+            angle: (p1, p2) => Math.atan2(p2.y - p1.y, p2.x - p1.x),
+            lerp: (start, end, amt) => (1 - amt) * start + amt * end,
+            rand: (min, max) => Math.random() * (max - min) + min,
+            drawPoly: (ctx, x, y, r, sides, rot) => {
+                if(sides === 0) { ctx.arc(x, y, r, 0, Math.PI*2); return; }
+                for (let i = 0; i < sides; i++) {
+                    const a = rot + (i * 2 * Math.PI / sides);
+                    i === 0 ? ctx.moveTo(x + r*Math.cos(a), y + r*Math.sin(a)) : ctx.lineTo(x + r*Math.cos(a), y + r*Math.sin(a));
+                }
+                ctx.closePath();
+            }
+        };
+
+        class GameState {
+            constructor() { this.reset('bruiser', 'default'); }
+            reset(charId, skin) {
+                this.status = 'MENU'; this.gameTime = 0; this.timeScale = 1.0;
+                const baseStat = CHARACTERS[charId];
+
+                this.player = {
+                    charId: charId, skin: skin, color: baseStat.color, x: 0, y: 0, radius: 15,
+                    stats: JSON.parse(JSON.stringify(baseStat.stats)), 
+                    effects: baseStat.effects ? JSON.parse(JSON.stringify(baseStat.effects)) : {}, 
+                    summons: {}, upgradesLog: {}, ownedUpgrades: new Set(),
+                    progression: { level: 1, xp: 0, nextXp: 50, kills: 0 },
+                    lastAttackTime: 0, combo: 1.0, comboTimer: 0,
+                    dashActive: 0, dashCooldownTimer: 0, shield: 0,
+                    beamTarget: null
+                };
+                
+                if(charId === 'architect') { this.player.summons.orbitals = 2; this.player.summons.drones = 1; }
+                this.player.stats.hp = this.player.stats.maxHp;
+
+                this.enemies = []; this.projectiles = []; this.gems = []; 
+                this.particles = []; this.floatingTexts = []; this.orbitals = []; this.drones = []; this.blades = [];
+                this.hazards = []; this.blackholes = [];
+                
+                this.spawner = { nextSpawn: 0, spawnRate: 1.0, waveMult: 1.0, bossesSpawned: 0, elitesSpawned: 0, lastAnomalyKills: 0 };
+                this.camera = { x: 0, y: 0 }; this.bossActive = null;
+                this.antiIdle = { timer: 0, lastX: 0, lastY: 0 };
+                
+                this.obstacles = [];
+                for(let i=0; i<40; i++) {
+                    let ox = MathHelper.rand(-1800, 1800);
+                    let oy = MathHelper.rand(-1800, 1800);
+                    if(Math.hypot(ox, oy) > 200) {
+                        this.obstacles.push({x: ox, y: oy, radius: MathHelper.rand(30, 100)});
+                    }
+                }
+                this.worldEvent = { active: null, timer: 0 };
+            }
+        }
+
+        const state = new GameState();
+        let commandQueue = []; 
+
+        const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false, " ": false };
+        
+        window.addEventListener('keydown', e => { 
+            const k = e.key.toLowerCase();
+            if(keys.hasOwnProperty(k)) keys[k] = true; 
+            else if(keys.hasOwnProperty(e.key)) keys[e.key] = true; 
+        });
+        window.addEventListener('keyup', e => { 
+            const k = e.key.toLowerCase();
+            if(keys.hasOwnProperty(k)) keys[k] = false; 
+            else if(keys.hasOwnProperty(e.key)) keys[e.key] = false; 
+        });
+
+        window.addEventListener('keydown', e => {
+            if((e.key === 'u' || e.key === 'U') && state.status === 'PLAYING') {
+                const tr = UI.tracker;
+                if(tr.classList.contains('translate-x-full')) { tr.classList.remove('translate-x-full', 'hidden'); updateTrackerUI(); } 
+                else { tr.classList.add('translate-x-full'); setTimeout(() => tr.classList.add('hidden'), 500); }
+            }
+        });
+
+        function processInputs() {
+            if (state.status !== 'PLAYING') return;
+            let dirX = 0, dirY = 0;
+            if (keys.w || keys.ArrowUp) dirY -= 1;
+            if (keys.s || keys.ArrowDown) dirY += 1;
+            if (keys.a || keys.ArrowLeft) dirX -= 1;
+            if (keys.d || keys.ArrowRight) dirX += 1;
+
+            if (dirX !== 0 && dirY !== 0) { const len = Math.sqrt(dirX*dirX + dirY*dirY); dirX /= len; dirY /= len; }
+            if (dirX !== 0 || dirY !== 0) commandQueue.push({ type: 'MOVE', dirX, dirY });
+
+            if (keys[" "] && state.player.dashCooldownTimer <= 0) {
+                commandQueue.push({ type: 'DASH', dirX: dirX || 1, dirY: dirY || 0 }); 
+                keys[" "] = false; 
+            }
+        }
+
+        function triggerLevelUp() {
+            state.status = 'LEVELUP'; UI.levelup.classList.remove('hidden'); UI.upgradeContainer.innerHTML = '';
+            
+            let validUpgrades = UPGRADES_DB.filter(u => {
+                if (u.excludeWeapons && u.excludeWeapons.includes(state.player.stats.weaponType)) return false;
+                let reqMet = !u.req || u.req.every(r => state.player.ownedUpgrades.has(r));
+                let notMaxed = !u.unique || !state.player.ownedUpgrades.has(u.id);
+                return reqMet && notMaxed;
+            });
+            
+            let synergies = validUpgrades.filter(u => u.req && u.req.length > 0);
+            let regulars = validUpgrades.filter(u => !u.req || u.req.length === 0);
+            
+            let shuffledRegs = [...regulars].sort(() => 0.5 - Math.random());
+            let shuffledSyns = [...synergies].sort(() => 0.5 - Math.random());
+            
+            let selected = [];
+            if (shuffledSyns.length > 0) {
+                selected.push(shuffledSyns[0]);
+                selected.push(...shuffledRegs.slice(0, 2));
+            } else {
+                selected = shuffledRegs.slice(0, 3);
+            }
+
+            selected.sort(() => 0.5 - Math.random());
+
+            selected.forEach(upg => {
+                const isSyn = upg.req && upg.req.length > 0;
+                const borderClass = isSyn ? 'border-yellow-400 shadow-[0_0_20px_rgba(250,204,21,0.2)]' : 'border-white/5';
+                const btn = document.createElement('div');
+                
+                btn.className = `upgrade-card rounded-2xl p-6 cursor-pointer w-full md:w-[30%] flex flex-col items-center text-center border ${borderClass}`;
+                btn.innerHTML = `
+                    <div class="w-12 h-12 rounded-full mb-3 flex items-center justify-center bg-white/5 border border-white/10 ${upg.color}">
+                        ${isSyn ? '<svg class="w-6 h-6 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>' : '<svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22h20L12 2z"/></svg>'}
+                    </div>
+                    ${isSyn ? '<span class="text-[10px] font-bold tracking-widest text-yellow-400 mb-2 uppercase bg-yellow-500/10 px-2 py-0.5 rounded">Synergy Discovered</span>' : ''}
+                    <h3 class="text-xl font-bold ${upg.color} mb-2">${upg.title}</h3>
+                    <p class="text-slate-400 text-sm font-mono leading-relaxed">${upg.desc}</p>
+                `;
+                btn.onclick = () => {
+                    upg.apply(state.player);
+                    state.player.upgradesLog[upg.title] = (state.player.upgradesLog[upg.title] || 0) + 1;
+                    state.player.ownedUpgrades.add(upg.id);
+                    syncSummons();
+                    state.status = 'PLAYING'; UI.levelup.classList.add('hidden'); updateHUD();
+                };
+                UI.upgradeContainer.appendChild(btn);
+            });
+        }
+
+        function updateTrackerUI() {
+            UI.trackerList.innerHTML = '';
+            for(let [title, count] of Object.entries(state.player.upgradesLog)) {
+                UI.trackerList.innerHTML += `<div class="flex justify-between border-b border-white/5 py-2"><span>${title}</span><span class="text-sky-400 font-bold">LVL ${count}</span></div>`;
+            }
+            if(Object.keys(state.player.upgradesLog).length === 0) UI.trackerList.innerHTML = '<div class="text-slate-500 italic">No upgrades acquired.</div>';
+        }
+
+        function updateHUD() {
+            const p = state.player;
+            UI.xpFill.style.width = `${(p.progression.xp / p.progression.nextXp) * 100}%`;
+            UI.hpFill.style.width = `${Math.max(0, (p.stats.hp / p.stats.maxHp)) * 100}%`;
+            
+            if(p.shield > 0) {
+                UI.shieldContainer.classList.remove('hidden'); UI.shieldContainer.classList.add('flex');
+                UI.shieldFill.style.width = `${Math.min(100, (p.shield / 50) * 100)}%`; 
+            } else { UI.shieldContainer.classList.add('hidden'); UI.shieldContainer.classList.remove('flex'); }
+
+            UI.levelText.innerText = `LVL ${p.progression.level}`;
+            UI.killsText.innerText = `${p.progression.kills} KILLS`;
+            const m = Math.floor(state.gameTime / 60).toString().padStart(2, '0');
+            const s = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
+            UI.timeText.innerText = `${m}:${s}`;
+
+            if(p.stats.hasCombo) {
+                UI.comboText.classList.remove('hidden');
+                UI.comboText.innerText = `COMBO x${p.combo.toFixed(1)}`;
+                UI.comboText.style.opacity = p.comboTimer > 0 ? 1 : 0.3;
+            }
+
+            if(state.bossActive) {
+                UI.bossContainer.classList.remove('hidden'); UI.bossContainer.classList.add('flex');
+                UI.bossHpFill.style.width = `${Math.max(0, state.bossActive.hp / state.bossActive.maxHp) * 100}%`;
+            } else {
+                UI.bossContainer.classList.add('hidden'); UI.bossContainer.classList.remove('flex');
+            }
+        }
+
+        function syncSummons() {
+            const p = state.player;
+            const reqOrbitals = p.summons.orbitals || 0;
+            while(state.orbitals.length < reqOrbitals) state.orbitals.push({ angle: Math.random() * Math.PI*2, dist: 70, radius: 6, dmg: 15 });
+            const reqDrones = p.summons.drones || 0;
+            while(state.drones.length < reqDrones) state.drones.push({ x: p.x, y: p.y, targetX: p.x, targetY: p.y, lastFire: 0, cooldown: 1.0 });
+            const reqBlades = p.summons.blades || 0;
+            while(state.blades.length < reqBlades) state.blades.push({ angle: Math.random() * Math.PI*2, dist: 90, length: 45, damage: 30 });
+        }
+
+        function spawnEnemy(isSwarm = false) {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = isSwarm ? MathHelper.rand(700, 1100) : Math.max(vw, vh) * 0.6; 
+            state.spawner.waveMult = 1.0 + (state.gameTime / 60) * 0.5; 
+            
+            let maxTier = Math.min(TIERS.length - 1, Math.floor(state.gameTime / 60)); 
+            let tierIdx = isSwarm ? Math.floor(Math.random() * Math.min(2, maxTier + 1)) : Math.max(0, Math.floor(Math.random() * (maxTier + 1)));
+            if (!isSwarm && Math.random() < 0.3) tierIdx = maxTier; 
+            
+            const tier = TIERS[tierIdx];
+            const shape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+            
+            state.enemies.push({
+                x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
+                radius: shape.radius * (1 + tierIdx*0.1), sides: shape.sides, color: tier.color, type: shape.type,
+                hp: 15 * tier.hpM * state.spawner.waveMult, maxHp: 15 * tier.hpM * state.spawner.waveMult,
+                speed: 120 * tier.spdM * MathHelper.rand(0.8, 1.2), damage: 5 * tier.dmgM * state.spawner.waveMult,
+                erratic: shape.erratic, freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
+                isBoss: false, isElite: false, vx: 0, vy: 0, timer: 0, xp: 10 * tier.xp
+            });
+        }
+
+        function spawnElite() {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.max(vw, vh) * 0.5;
+            const t = ELITE_TYPES[Math.floor(Math.random() * ELITE_TYPES.length)];
+            
+            state.enemies.push({
+                x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
+                radius: 15 * t.scale, sides: SHAPES.find(s=>s.type === t.type).sides, color: t.color,
+                hp: 100 * state.spawner.waveMult * t.hpMult, maxHp: 100 * state.spawner.waveMult * t.hpMult,
+                speed: 100 * t.speedMult, damage: 20 * state.spawner.waveMult * t.dmgMult,
+                freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
+                isBoss: false, isElite: true, behavior: t.behavior, timer: 0, vx: 0, vy: 0
+            });
+            state.spawner.elitesSpawned++;
+            state.floatingTexts.push({ x: state.player.x, y: state.player.y - 50, text: "ELITE DETECTED", life: 2.0, color: '#f87171', vy: -10, size: 14 });
+        }
+
+        function spawnBoss() {
+            const angle = Math.random() * Math.PI * 2;
+            const dist = Math.max(vw, vh) * 0.5;
+            const waveScale = 1.0 + state.spawner.bossesSpawned;
+            const t = BOSS_TEMPLATES[state.spawner.bossesSpawned % BOSS_TEMPLATES.length];
+            
+            const boss = {
+                x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
+                radius: 60, sides: t.sides, color: t.color, behavior: t.behavior,
+                hp: t.hpMode * waveScale, maxHp: t.hpMode * waveScale,
+                speed: 40, damage: 30 * waveScale,
+                freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
+                isBoss: true, name: `${t.name} MK-${Math.floor(state.spawner.bossesSpawned/BOSS_TEMPLATES.length) + 1}`,
+                state: 'chase', timer: 0, vx: 0, vy: 0
+            };
+            
+            state.enemies.push(boss); state.bossActive = boss; state.spawner.bossesSpawned++;
+            UI.bossName.innerText = boss.name;
+        }
+
+        function createProjectile(x, y, angle, stats, effects, color, isEnemy = false, type = 'normal') {
+            state.projectiles.push({
+                x, y, vx: Math.cos(angle) * stats.projectileSpeed, vy: Math.sin(angle) * stats.projectileSpeed,
+                radius: (type === 'giant' ? 8 : (type === 'mini' ? 2 : 4)) * (stats.scale || 1), 
+                damage: stats.damage, life: isEnemy ? 4.0 : (stats.attackRange / Math.max(1, stats.projectileSpeed)),
+                effects: { ...effects }, hitTargets: new Set(),
+                pierceLeft: stats.pierce || 0, bounceLeft: stats.bounce || 0, homing: stats.homing || 0, 
+                explodeRadius: stats.explodeRadius || 0, color, isEnemy
+            });
+        }
+
+        function updateCombat(dt) {
+            const p = state.player; const now = state.gameTime;
+            
+            if (p.stats.weaponType === 'beam') {
+                let nearest = null, minDist = p.stats.attackRange;
+                for (let e of state.enemies) {
+                    const d = MathHelper.dist(p, e);
+                    if (d < minDist) { minDist = d; nearest = e; }
+                }
+                if (nearest) {
+                    p.beamTarget = nearest;
+                    applyDamage(nearest, p.stats.damage * dt, p.color);
+                    if(p.stats.lifesteal > 0 && Math.random()<0.1) p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + p.stats.damage * dt * p.stats.lifesteal);
+                } else { p.beamTarget = null; }
+            } 
+            else if (p.stats.weaponType === 'spin') {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    for (let e of state.enemies) {
+                        if (MathHelper.dist(p, e) <= p.stats.attackRange + e.radius) {
+                            applyDamage(e, p.stats.damage, p.color);
+                            if (p.effects.bleed) e.bleedTimer = 4.0;
+                            if (p.effects.poison) e.poisonTimer = 4.0;
+                            if (p.effects.freeze) e.freezeTimer = 2.0;
+                            if (p.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + p.effects.burn; }
+                        }
+                    }
+                    state.particles.push({ type: 'spin', playerAttached: true, radius: p.stats.attackRange, life: 0.3, maxLife: 0.3, color: p.color, angle: Math.random() * Math.PI*2 });
+                    p.lastAttackTime = now;
+                }
+            }
+            else if (p.stats.weaponType === 'pulse') {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    explosion(p.x, p.y, p.stats.attackRange, p.stats.damage, p.color);
+                    p.lastAttackTime = now;
+                }
+            }
+            else if (p.stats.weaponType === 'orbital') {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    let targets = [];
+                    for (let e of state.enemies) {
+                        if (MathHelper.dist(p, e) <= p.stats.attackRange) targets.push(e);
+                    }
+                    targets.sort(() => 0.5 - Math.random());
+                    let count = Math.min(p.stats.projectiles, targets.length);
+                    
+                    if (targets.length > 0) {
+                        for(let i=0; i < p.stats.projectiles; i++) {
+                            let t = targets[i % targets.length];
+                            state.particles.push({ type: 'vertical_beam', x: t.x, y: t.y, life: 0.3, maxLife: 0.3, color: '#a3e635', radius: p.stats.explodeRadius || 80 });
+                            explosion(t.x, t.y, p.stats.explodeRadius || 80, p.stats.damage, 'rgba(163, 230, 53, 0.4)');
+                            if (p.effects.bleed) t.bleedTimer = 4.0;
+                            if (p.effects.poison) t.poisonTimer = 4.0;
+                            if (p.effects.freeze) t.freezeTimer = 2.0;
+                            if (p.effects.burn) { t.burnTimer = 3.0; t.burnStacks = (t.burnStacks||0) + p.effects.burn; }
+                        }
+                        p.lastAttackTime = now;
+                    }
+                }
+            }
+            else {
+                if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
+                    let nearest = null, minDist = p.stats.attackRange;
+                    for (let e of state.enemies) {
+                        const d = MathHelper.dist(p, e);
+                        if (d < minDist) { minDist = d; nearest = e; }
+                    }
+                    
+                    if (nearest || p.stats.weaponType === 'mine') {
+                        const angleToTarget = nearest ? MathHelper.angle(p, nearest) : 0;
+                        const count = p.stats.projectiles; const spread = p.stats.spread;
+
+                        for(let i = 0; i < count; i++) {
+                            let offset = count > 1 ? (-spread/2 + (spread / (count - 1)) * i) : 0;
+                            offset += MathHelper.rand(-0.05, 0.05); 
+                            createProjectile(p.x, p.y, angleToTarget + offset, p.stats, p.effects, p.color);
+                        }
+                        p.lastAttackTime = now;
+                    }
+                }
+            }
+
+            for(let d of state.drones) {
+                if(now - d.lastFire > d.cooldown) {
+                    let target = state.enemies[Math.floor(Math.random() * state.enemies.length)];
+                    if(target && MathHelper.dist(d, target) < 400) {
+                        createProjectile(d.x, d.y, MathHelper.angle(d, target), { projectileSpeed: 500, damage: p.stats.damage * 0.4, attackRange: 400, scale: 0.5 }, {}, '#cbd5e1');
+                        d.lastFire = now;
+                    }
+                }
+            }
+        }
+
+        function applyDamage(e, baseDmg, colorOverride = null) {
+            const p = state.player;
+            let dmg = baseDmg * p.combo;
+            
+            let isCrit = Math.random() < p.stats.critChance;
+            if(isCrit) dmg *= p.stats.critMult;
+            e.hp -= dmg;
+            
+            if(p.stats.hasCombo) { 
+                let maxCombo = 1.0 + ((p.stats.comboLevel || 1) * 0.5);
+                p.combo = Math.min(maxCombo, p.combo + 0.05); 
+                p.comboTimer = 2.0; 
+            }
+
+            if(p.stats.lifesteal > 0 && !e.isBoss && !isCrit) {
+                let heal = dmg * p.stats.lifesteal;
+                if(p.stats.hp < p.stats.maxHp) { p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal); }
+            }
+
+            if(Math.random() < 0.3 || isCrit) {
+                let textColor = colorOverride || (isCrit ? '#fde047' : '#ffffff');
+                let size = isCrit ? 14 : 10;
+                state.floatingTexts.push({ x: e.x + MathHelper.rand(-10,10), y: e.y - e.radius - 5, text: Math.floor(dmg).toString(), life: 0.5, color: textColor, vy: -20, size });
+            }
+        }
+
+        function explosion(x, y, radius, dmg, color = 'rgba(239, 68, 68, 0.4)') {
+            state.particles.push({ x, y, vx: 0, vy: 0, life: 0.3, maxLife: 0.3, color: color, size: radius, isPulse: true });
+            for(let e of state.enemies) if(MathHelper.dist({x,y}, e) < radius + e.radius) applyDamage(e, dmg, '#fb923c');
+        }
+
+        function updateEngine(dtReal) {
+            if (state.status !== 'PLAYING') return;
+            const p = state.player;
+            
+            const dt = dtReal * state.timeScale;
+            state.gameTime += dtReal;
+
+            if(p.comboTimer > 0) p.comboTimer -= dtReal; else p.combo = 1.0;
+            if(p.dashCooldownTimer > 0) p.dashCooldownTimer -= dtReal;
+            if(p.dashActive > 0) p.dashActive -= dtReal;
+
+            function constrainToBounds(obj) {
+                if(obj.x < -2000 + obj.radius) obj.x = -2000 + obj.radius;
+                if(obj.x > 2000 - obj.radius) obj.x = 2000 - obj.radius;
+                if(obj.y < -2000 + obj.radius) obj.y = -2000 + obj.radius;
+                if(obj.y > 2000 - obj.radius) obj.y = 2000 - obj.radius;
+            }
+
+            function collideWithObstacles(obj) {
+                for (let obs of state.obstacles) {
+                    let d = MathHelper.dist(obj, obs);
+                    if (d < obj.radius + obs.radius) {
+                        let over = (obj.radius + obs.radius) - d;
+                        let a = MathHelper.angle(obs, obj);
+                        obj.x += Math.cos(a) * over; obj.y += Math.sin(a) * over;
+                    }
+                }
+            }
+
+            let movedThisFrame = false;
+            while(commandQueue.length > 0) {
+                const cmd = commandQueue.shift();
+                if(cmd.type === 'MOVE' && p.dashActive <= 0) {
+                    p.x += cmd.dirX * (p.stats.speed || 200) * dtReal; 
+                    p.y += cmd.dirY * (p.stats.speed || 200) * dtReal;
+                    movedThisFrame = true;
+                } else if (cmd.type === 'DASH') {
+                    p.dashActive = 0.2; p.dashCooldownTimer = p.stats.dashCooldown;
+                    p.dashDirX = cmd.dirX; p.dashDirY = cmd.dirY;
+                    if(p.stats.dashExplosion) explosion(p.x, p.y, p.stats.dashExplosion * 50, p.stats.damage * 2, 'rgba(250, 204, 21, 0.5)');
+                    movedThisFrame = true;
+                }
+            }
+
+            if(p.dashActive > 0) {
+                p.x += p.dashDirX * p.stats.speed * 4 * dtReal; p.y += p.dashDirY * p.stats.speed * 4 * dtReal;
+                state.particles.push({x: p.x, y: p.y, vx: 0, vy: 0, life: 0.2, color: 'rgba(255,255,255,0.1)', size: p.radius});
+                if(p.dashActive <= 0 && p.stats.dashExplosion) explosion(p.x, p.y, p.stats.dashExplosion * 60, p.stats.damage * 3, 'rgba(250, 204, 21, 0.6)');
+            }
+
+            collideWithObstacles(p);
+            constrainToBounds(p);
+
+            // Anti-Standstill System (Inescapable)
+            if (state.gameTime % 1 < dtReal) {
+                if (!movedThisFrame || MathHelper.dist(p, {x: state.antiIdle.lastX, y: state.antiIdle.lastY}) < 30) {
+                    state.antiIdle.timer++;
+                    if (state.antiIdle.timer === 2) {
+                        state.floatingTexts.push({ x: p.x, y: p.y - 40, text: "MOVEMENT REQUIRED", life: 1.5, color: '#facc15', vy: -10, size: 12 });
+                    }
+                    if (state.antiIdle.timer >= 4) {
+                        // INESCAPABLE TRUE DAMAGE AFK STRIKE
+                        state.particles.push({ type: 'vertical_beam', x: p.x, y: p.y, life: 0.5, maxLife: 0.5, color: '#ef4444', radius: 150 });
+                        explosion(p.x, p.y, 150, 0, 'rgba(239, 68, 68, 0.8)'); // Visual AoE only
+                        
+                        // Bypass dodge, armor, and shields completely
+                        p.shield = 0; 
+                        p.combo = 1.0;
+                        p.stats.hp -= (p.stats.maxHp * 0.4); // 40% Max HP True Damage
+                        
+                        state.floatingTexts.push({ x: p.x, y: p.y - 60, text: "ORBITAL PUNISHMENT", life: 2.0, color: '#ef4444', vy: -20, size: 16 });
+                        if (p.stats.hp <= 0) gameOver();
+                        
+                        state.antiIdle.timer = 0;
+                    }
+                } else {
+                    state.antiIdle.timer = 0;
+                }
+                state.antiIdle.lastX = p.x; state.antiIdle.lastY = p.y;
+            }
+
+            state.camera.x = MathHelper.lerp(state.camera.x, p.x - vw/2, 5 * dtReal);
+            state.camera.y = MathHelper.lerp(state.camera.y, p.y - vh/2, 5 * dtReal);
+
+            if(p.stats.regen > 0 && p.stats.hp < p.stats.maxHp) p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + p.stats.regen * dtReal);
+
+            if(p.stats.vampAura > 0 && state.gameTime % 0.5 < dtReal) {
+                let healed = false;
+                for(let e of state.enemies) {
+                    if(MathHelper.dist(p, e) < 150) {
+                        applyDamage(e, p.stats.damage * 0.2 * p.stats.vampAura, '#e11d48');
+                        healed = true;
+                        state.particles.push({x: e.x, y: e.y, targetX: p.x, targetY: p.y, life: 0.2, color: '#e11d48', isLine: true});
+                    }
+                }
+                if(healed) p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + (2 * p.stats.vampAura));
+            }
+
+            let orbSpeed = 3 * state.timeScale;
+            for(let i=0; i<state.orbitals.length; i++) {
+                let orb = state.orbitals[i]; orb.angle += orbSpeed * dtReal;
+                let targetAngle = orb.angle + (i * Math.PI * 2 / state.orbitals.length);
+                let ox = p.x + Math.cos(targetAngle) * orb.dist; let oy = p.y + Math.sin(targetAngle) * orb.dist;
+                for(let e of state.enemies) {
+                    if(MathHelper.dist({x:ox, y:oy}, e) < orb.radius + e.radius && Math.random() < 0.1) applyDamage(e, p.stats.damage * 0.5, '#38bdf8');
+                }
+                state.particles.push({x: ox, y: oy, vx: 0, vy: 0, life: 0.1, color: 'rgba(56,189,248,0.5)', size: orb.radius});
+                
+                if(p.effects.orbitalTurret && state.gameTime % 0.8 < dtReal) {
+                     let target = state.enemies[Math.floor(Math.random() * state.enemies.length)];
+                     if(target && MathHelper.dist({x:ox, y:oy}, target) < 400) {
+                         createProjectile(ox, oy, MathHelper.angle({x:ox, y:oy}, target), { projectileSpeed: 600, damage: p.stats.damage * 0.4, attackRange: 400, scale: 0.5 }, {}, '#67e8f9');
+                     }
+                }
+            }
+            for(let d of state.drones) {
+                d.targetX = p.x + Math.cos(state.gameTime*2 + d.lastFire)*50; d.targetY = p.y + Math.sin(state.gameTime*2 + d.lastFire)*50;
+                d.x = MathHelper.lerp(d.x, d.targetX, 3*dtReal); d.y = MathHelper.lerp(d.y, d.targetY, 3*dtReal);
+            }
+
+            let bladeSpeed = 10 * state.timeScale;
+            for(let i=0; i<state.blades.length; i++) {
+                let b = state.blades[i];
+                b.angle += bladeSpeed * dtReal;
+                b.x = p.x + Math.cos(b.angle) * b.dist;
+                b.y = p.y + Math.sin(b.angle) * b.dist;
+                for(let e of state.enemies) {
+                    if((e.bladeHitTimer || 0) > 0) e.bladeHitTimer -= dtReal;
+                    if(MathHelper.dist({x: b.x, y: b.y}, e) < e.radius + 20 && (e.bladeHitTimer || 0) <= 0) {
+                        applyDamage(e, p.stats.damage * 1.5, '#f43f5e');
+                        if (p.effects.bladeBleed) e.bleedTimer = 4.0;
+                        state.particles.push({x: e.x, y: e.y, vx: MathHelper.rand(-30,30), vy: MathHelper.rand(-30,30), life: 0.2, color: '#f43f5e', size: 4});
+                        e.bladeHitTimer = 0.25; 
+                    }
+                }
+            }
+
+            if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.bossesSpawned + 1) * 100 && !state.bossActive) spawnBoss();
+            if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.elitesSpawned + 1) * 25 && !state.bossActive) spawnElite();
+
+            // Anomalies trigger strictly every 300 kills
+            if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.lastAnomalyKills + 1) * 300 && !state.bossActive) {
+                let events = ["METEOR_SHOWER", "SWARM", "BLACKOUT", "TIME_DISTORTION", "BLOOD_MOON"];
+                state.worldEvent.active = events[Math.floor(Math.random() * events.length)];
+                state.worldEvent.timer = 15;
+                state.spawner.lastAnomalyKills++;
+                state.floatingTexts.push({ x: p.x, y: p.y - 60, text: `ANOMALY: ${state.worldEvent.active.replace('_', ' ')}`, life: 3.0, color: '#facc15', vy: -20, size: 20 });
+            }
+
+            if (state.worldEvent.timer > 0) {
+                state.worldEvent.timer -= dtReal;
+                
+                if (state.worldEvent.active === "TIME_DISTORTION") state.timeScale = 0.3;
+                else state.timeScale = 1.0;
+
+                if (state.worldEvent.active === "METEOR_SHOWER" && Math.random() < 0.015) {
+                     state.hazards.push({ x: p.x + MathHelper.rand(-800, 800), y: p.y + MathHelper.rand(-800, 800), radius: MathHelper.rand(60, 150), timer: 2.5, damage: p.stats.maxHp * 0.15 });
+                }
+                if (state.worldEvent.active === "SWARM" && Math.floor(state.worldEvent.timer * 10) % 5 === 0 && state.enemies.length < 150) {
+                    spawnEnemy(true); 
+                }
+                if (state.worldEvent.active === "BLOOD_MOON" && Math.floor(state.worldEvent.timer * 10) % 2 === 0 && state.enemies.length < 250) {
+                    spawnEnemy(true);
+                }
+            } else { 
+                state.worldEvent.active = null; 
+                state.timeScale = 1.0; 
+            }
+
+            if(!state.bossActive) {
+                state.spawner.nextSpawn -= dt;
+                if (state.spawner.nextSpawn <= 0) {
+                    spawnEnemy();
+                    state.spawner.spawnRate = Math.max(0.15, 1.0 - (state.gameTime / 400)); 
+                    state.spawner.nextSpawn = state.spawner.spawnRate;
+                }
+            }
+
+            updateCombat(dtReal);
+
+            for(let i=state.blackholes.length-1; i>=0; i--) {
+                let bh = state.blackholes[i];
+                bh.life -= dt;
+                for(let e of state.enemies) {
+                    let d = MathHelper.dist(bh, e);
+                    if(d < bh.radius * 2) {
+                        e.x += (bh.x - e.x) * (bh.pull/1000) * dt;
+                        e.y += (bh.y - e.y) * (bh.pull/1000) * dt;
+                        if(d < bh.radius && Math.random() < 0.1) applyDamage(e, bh.damage, '#a855f7');
+                    }
+                }
+                if(bh.life <= 0) state.blackholes.splice(i, 1);
+            }
+
+            for (let i = state.hazards.length - 1; i >= 0; i--) {
+                let h = state.hazards[i];
+                h.timer -= dt;
+                if(h.timer <= 0) {
+                    explosion(h.x, h.y, h.radius, 0, 'rgba(239, 68, 68, 0.4)'); 
+                    if(MathHelper.dist(p, h) < h.radius + p.radius) takePlayerDamage(h.damage);
+                    state.hazards.splice(i, 1);
+                }
+            }
+
+            for (let i = state.projectiles.length - 1; i >= 0; i--) {
+                let proj = state.projectiles[i];
+                let pDt = proj.isEnemy ? dt : dtReal; // Player projectiles ignore time distortion
+                proj.x += proj.vx * pDt; proj.y += proj.vy * pDt; proj.life -= pDt;
+                
+                let destroyed = false;
+                if (proj.x < -2000 || proj.x > 2000 || proj.y < -2000 || proj.y > 2000) destroyed = true;
+                for (let obs of state.obstacles) {
+                    if (MathHelper.dist(proj, obs) < proj.radius + obs.radius) { destroyed = true; break; }
+                }
+
+                if(proj.homing > 0 && !proj.isEnemy && !destroyed) {
+                    let nearest = null, minDist = 250;
+                    for(let e of state.enemies) {
+                        let d = MathHelper.dist(proj, e);
+                        if(d < minDist && !proj.hitTargets.has(e)) { minDist = d; nearest = e; }
+                    }
+                    if(nearest) {
+                        let currentAngle = Math.atan2(proj.vy, proj.vx);
+                        let diff = MathHelper.angle(proj, nearest) - currentAngle;
+                        while (diff < -Math.PI) diff += Math.PI * 2; while (diff > Math.PI) diff -= Math.PI * 2;
+                        currentAngle += diff * proj.homing;
+                        let speed = Math.hypot(proj.vx, proj.vy);
+                        proj.vx = Math.cos(currentAngle) * speed; proj.vy = Math.sin(currentAngle) * speed;
+                    }
+                }
+
+                if (!destroyed) {
+                    if (proj.isEnemy) {
+                        if (MathHelper.dist(proj, p) < proj.radius + p.radius && p.dashActive <= 0) { takePlayerDamage(proj.damage); destroyed = true; }
+                    } else {
+                        for (let j = state.enemies.length - 1; j >= 0; j--) {
+                            let e = state.enemies[j];
+                            if (!proj.hitTargets.has(e) && MathHelper.dist(proj, e) < proj.radius + e.radius) {
+                                applyDamage(e, proj.damage); proj.hitTargets.add(e);
+                                
+                                if (proj.effects.freeze) e.freezeTimer = 2.0; 
+                                if (proj.effects.bleed) e.bleedTimer = 4.0; 
+                                if (proj.effects.poison) e.poisonTimer = 4.0; 
+                                if (proj.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + proj.effects.burn; }
+                                if (proj.explodeRadius > 0) explosion(e.x, e.y, proj.explodeRadius, proj.damage * 0.5);
+                                if (proj.effects.singularity && Math.random() < 0.1) {
+                                    let lvl = proj.effects.singularity;
+                                    state.blackholes.push({ x: proj.x, y: proj.y, radius: 40 + lvl*15, pull: 100 + lvl*50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
+                                }
+
+                                if (proj.bounceLeft > 0) {
+                                    if(proj.effects.plasmaBounce) explosion(e.x, e.y, 80, proj.damage, 'rgba(249, 115, 22, 0.5)');
+                                    proj.bounceLeft--; proj.hitTargets.clear(); proj.hitTargets.add(e);
+                                    let nextTarget = null, nDist = 300;
+                                    for(let ne of state.enemies) { if(ne !== e) { let d = MathHelper.dist(e, ne); if(d < nDist) { nDist = d; nextTarget = ne; } } }
+                                    if(nextTarget) {
+                                        let a = MathHelper.angle(e, nextTarget); let s = Math.hypot(proj.vx, proj.vy);
+                                        proj.vx = Math.cos(a) * s; proj.vy = Math.sin(a) * s;
+                                    }
+                                } else if (proj.pierceLeft > 0) { proj.pierceLeft--; } else { destroyed = true; break; }
+                            }
+                        }
+                    }
+                }
+                
+                if (destroyed || proj.life <= 0) state.projectiles.splice(i, 1);
+            }
+
+            for (let i = state.enemies.length - 1; i >= 0; i--) {
+                let e = state.enemies[i];
+                let currentSpeed = e.speed;
+                if (state.worldEvent.active === 'BLOOD_MOON') currentSpeed *= 1.5;
+                if (e.freezeTimer > 0) { currentSpeed *= 0.3; e.freezeTimer -= dt; }
+                if (e.bleedTimer > 0) { e.hp -= (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt; e.bleedTimer -= dt; if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:0, vy:-10, life:0.4, color:'#be123c', size:3}); }
+                
+                if (e.poisonTimer > 0) { 
+                    let poisonDmg = (e.maxHp * 0.02 * (p.effects.poison||1)) * dt;
+                    if (p.effects.toxicBlood && e.bleedTimer > 0) poisonDmg *= 2; 
+                    e.hp -= poisonDmg; 
+                    e.poisonTimer -= dt; 
+                    if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:MathHelper.rand(-5,5), vy:-10, life:0.3, color:'#22c55e', size:4}); 
+                }
+                
+                e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.9; e.vy *= 0.9; 
+
+                collideWithObstacles(e);
+                constrainToBounds(e);
+
+                for (let j = i + 1; j < Math.min(i + 8, state.enemies.length); j++) {
+                    let e2 = state.enemies[j];
+                    let d = MathHelper.dist(e, e2);
+                    let minD = e.radius + e2.radius;
+                    if (d < minD && d > 0) {
+                        let over = (minD - d) / 2;
+                        let ang = MathHelper.angle(e, e2);
+                        let cx = Math.cos(ang) * over; let cy = Math.sin(ang) * over;
+                        e.x -= cx; e.y -= cy; e2.x += cx; e2.y += cy;
+                    }
+                }
+
+                if (e.hp <= 0) {
+                    if (p.effects.bloodplague && e.bleedTimer > 0) explosion(e.x, e.y, 60, p.stats.damage * 1.5, 'rgba(159, 18, 57, 0.5)');
+
+                    if(e.isBoss) {
+                        state.bossActive = null;
+                        for(let k=0; k<50; k++) state.gems.push({ x: e.x + MathHelper.rand(-100,100), y: e.y + MathHelper.rand(-100,100), value: 50 });
+                        explosion(e.x, e.y, 250, 0, 'rgba(255,255,255,0.2)'); 
+                    } else if (e.isElite) {
+                        if(e.behavior === 'split') { for(let s=0; s<3; s++) state.enemies.push({...e, hp: e.maxHp*0.3, radius: e.radius*0.5, isElite: false, behavior: 'none'}); }
+                        for(let k=0; k<20; k++) state.gems.push({ x: e.x + MathHelper.rand(-30,30), y: e.y + MathHelper.rand(-30,30), value: 20 });
+                    } else {
+                        p.progression.kills++;
+                        state.gems.push({ x: e.x, y: e.y, value: e.xp || 10 });
+                    }
+                    for(let k=0; k<6; k++) state.particles.push({ x: e.x, y: e.y, vx: MathHelper.rand(-100, 100), vy: MathHelper.rand(-100, 100), life: MathHelper.rand(0.2, 0.5), color: e.color, size: MathHelper.rand(2, 6) });
+                    state.enemies.splice(i, 1);
+                    continue;
+                }
+
+                e.timer += dt;
+                if(e.isBoss) {
+                    const angle = MathHelper.angle(e, p);
+                    if(e.behavior === 'ring') {
+                        e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
+                        if(e.timer > 2.5) { e.timer = 0; for(let r=0; r<16; r++) createProjectile(e.x, e.y, (Math.PI*2/16)*r + state.gameTime, {projectileSpeed: 200, damage: e.damage, attackRange: 1000}, {}, e.color, true); }
+                    } else if (e.behavior === 'spiral') {
+                        e.x += Math.cos(angle) * currentSpeed * 0.5 * dt; e.y += Math.sin(angle) * currentSpeed * 0.5 * dt;
+                        if(e.timer > 0.1) { e.timer = 0; createProjectile(e.x, e.y, state.gameTime * 5, {projectileSpeed: 250, damage: e.damage, attackRange: 800}, {}, e.color, true); }
+                    } else if (e.behavior === 'pull') {
+                        if(MathHelper.dist(e, p) < 500 && p.dashActive <= 0) { p.x += (e.x - p.x)*0.8*dt; p.y += (e.y - p.y)*0.8*dt; }
+                        if(e.timer > 3) { e.timer = 0; for(let r=0; r<8; r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.2, 0.2), {projectileSpeed: 300, damage: e.damage*1.5, attackRange: 1000, scale: 2}, {}, e.color, true, 'giant'); }
+                    } else if (e.behavior === 'dash') {
+                        if(e.timer > 2) { e.timer = -1; e.vx = Math.cos(angle) * 800; e.vy = Math.sin(angle) * 800; }
+                        if(e.timer < 0 && Math.random()<0.2) createProjectile(e.x, e.y, 0, {projectileSpeed: 0, damage: e.damage, attackRange: 1000}, {}, e.color, true);
+                    } else if (e.behavior === 'laser') {
+                        e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
+                        if(e.timer > 3.5) { e.timer = 0; createProjectile(e.x, e.y, angle, {projectileSpeed: 800, damage: e.damage*2, attackRange: 2000, scale: 3}, {}, e.color, true, 'giant'); }
+                    } else if (e.behavior === 'shotgun') {
+                        e.x += Math.cos(angle + Math.sin(state.gameTime)*2) * currentSpeed * dt; e.y += Math.sin(angle + Math.sin(state.gameTime)*2) * currentSpeed * dt;
+                        if(e.timer > 2) { e.timer = 0; for(let r=0; r<10; r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 400, damage: e.damage, attackRange: 600}, {}, e.color, true); }
+                    }
+                } else if (e.isElite) {
+                    const angle = MathHelper.angle(e, p);
+                    e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
+                    if(e.behavior === 'mortar' && e.timer > 3) {
+                        e.timer = 0; state.hazards.push({ x: p.x, y: p.y, radius: 60, timer: 1.5, damage: e.damage * 2 }); 
+                    }
+                } else {
+                    let angle = MathHelper.angle(e, p);
+                    if(e.erratic) angle += Math.sin(state.gameTime * 5) * 1.5; 
+                    e.x += Math.cos(angle) * currentSpeed * dt; e.y += Math.sin(angle) * currentSpeed * dt;
+                }
+
+                if (MathHelper.dist(e, p) < e.radius + p.radius && p.dashActive <= 0) { takePlayerDamage(e.damage * dtReal * 2); }
+            }
+
+            for (let i = state.gems.length - 1; i >= 0; i--) {
+                let g = state.gems[i];
+                const d = MathHelper.dist(p, g);
+                if (d < p.stats.pickupRange) {
+                    const angle = MathHelper.angle(g, p);
+                    const pull = 600 * (1 - d/Math.max(1, p.stats.pickupRange)); 
+                    g.x += Math.cos(angle) * pull * dtReal; g.y += Math.sin(angle) * pull * dtReal;
+                    
+                    if (d < p.radius + 10) {
+                        p.progression.xp += g.value; state.gems.splice(i, 1);
+                        if (p.progression.xp >= p.progression.nextXp) {
+                            p.progression.level++; p.progression.xp -= p.progression.nextXp;
+                            p.progression.nextXp = Math.floor(50 * Math.pow(1.3, p.progression.level - 1));
+                            triggerLevelUp();
+                        }
+                    }
+                }
+            }
+
+            state.particles.forEach(pt => { 
+                if(pt.playerAttached) { pt.x = p.x; pt.y = p.y; }
+                else if(!pt.isPulse && !pt.isLine && pt.type !== 'spin' && pt.type !== 'vertical_beam') { pt.x+=pt.vx*dtReal; pt.y+=pt.vy*dtReal; } 
+                pt.life-=dtReal; 
+            });
+            state.particles = state.particles.filter(pt => pt.life > 0);
+            state.floatingTexts.forEach(ft => { ft.y += ft.vy*dtReal; ft.life -= dtReal; });
+            state.floatingTexts = state.floatingTexts.filter(ft => ft.life > 0);
+
+            if (Math.floor(state.gameTime * 10) % 2 === 0) updateHUD(); 
+        }
+
+        function takePlayerDamage(rawDmg) {
+            const p = state.player;
+            if(Math.random() < p.stats.dodge) { state.floatingTexts.push({ x: p.x, y: p.y - 20, text: "DODGE", life: 0.5, color: '#94a3b8', vy: -20, size: 10 }); return; }
+            
+            p.combo = 1.0; 
+            let finalDmg = Math.max(1, rawDmg - p.stats.armor);
+            
+            if(p.shield > 0) { if(p.shield >= finalDmg) { p.shield -= finalDmg; return; } else { finalDmg -= p.shield; p.shield = 0; } }
+            p.stats.hp -= finalDmg;
+
+            if (p.stats.hp <= 0) gameOver();
+        }
+
+        function draw() {
+            ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh);
+            if (state.status === 'MENU') return;
+
+            ctx.save(); ctx.translate(-state.camera.x, -state.camera.y);
+
+            ctx.fillStyle = 'rgba(239, 68, 68, 0.02)'; ctx.fillRect(-2000, -2000, 4000, 4000);
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.3)'; ctx.lineWidth = 10; ctx.strokeRect(-2000, -2000, 4000, 4000);
+
+            ctx.save();
+            ctx.beginPath(); ctx.rect(-2000, -2000, 4000, 4000); ctx.clip();
+
+            ctx.strokeStyle = 'rgba(255,255,255,0.03)'; ctx.lineWidth = 1; const gs = 100;
+            const sx = Math.floor(state.camera.x / gs) * gs, sy = Math.floor(state.camera.y / gs) * gs;
+            ctx.beginPath();
+            for(let x = sx; x < sx + vw + gs; x += gs) { ctx.moveTo(x, sy); ctx.lineTo(x, sy + vh + gs); }
+            for(let y = sy; y < sy + vh + gs; y += gs) { ctx.moveTo(sx, y); ctx.lineTo(sx + vw + gs, y); }
+            ctx.stroke();
+
+            for(let obs of state.obstacles) {
+                ctx.fillStyle = '#0f172a'; ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#334155'; ctx.lineWidth = 2; ctx.stroke();
+                ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(obs.x, obs.y, obs.radius - 8, 0, Math.PI*2); ctx.stroke();
+            }
+
+            for(let bh of state.blackholes) {
+                let lifeRatio = bh.life / bh.maxLife;
+                ctx.fillStyle = `rgba(147, 51, 234, ${0.1 * lifeRatio})`;
+                ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.radius * 2, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = `rgba(88, 28, 135, ${0.5 * lifeRatio})`;
+                ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.radius, 0, Math.PI*2); ctx.fill();
+                ctx.fillStyle = '#000';
+                ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.radius * 0.4 * lifeRatio, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = '#c084fc'; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.arc(bh.x, bh.y, bh.radius * lifeRatio, 0, Math.PI*2); ctx.stroke();
+            }
+
+            for(let h of state.hazards) {
+                ctx.fillStyle = 'rgba(239, 68, 68, 0.05)'; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius, 0, Math.PI*2); ctx.fill();
+                ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(h.x, h.y, h.radius * (1 - (h.timer/1.5)), 0, Math.PI*2); ctx.stroke();
+            }
+
+            for(let g of state.gems) { ctx.fillStyle = '#38bdf8'; ctx.beginPath(); ctx.moveTo(g.x, g.y - 4); ctx.lineTo(g.x + 4, g.y); ctx.lineTo(g.x, g.y + 4); ctx.lineTo(g.x - 4, g.y); ctx.fill(); }
+
+            for(let e of state.enemies) {
+                ctx.fillStyle = e.freezeTimer > 0 ? '#67e8f9' : (e.burnTimer > 0 ? '#fb923c' : e.color);
+                ctx.beginPath(); MathHelper.drawPoly(ctx, e.x, e.y, e.radius, e.sides, state.gameTime * (e.isBoss?0.5:1)); ctx.fill();
+                
+                if(e.isBoss || e.isElite) {
+                    ctx.strokeStyle = e.color; ctx.lineWidth = e.isBoss ? 3 : 2;
+                    MathHelper.drawPoly(ctx, e.x, e.y, e.radius + (e.isBoss?10:5) + Math.sin(state.gameTime*5)*(e.isBoss?5:2), e.sides, -state.gameTime); ctx.stroke();
+                }
+                if(e.hp < e.maxHp && !e.isBoss) {
+                    ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(e.x - e.radius, e.y - e.radius - 8, e.radius*2, 2);
+                    ctx.fillStyle = '#ef4444'; ctx.fillRect(e.x - e.radius, e.y - e.radius - 8, (e.radius*2) * (Math.max(0,e.hp)/e.maxHp), 2);
+                }
+            }
+
+            const p = state.player;
+            
+            if(p.stats.weaponType === 'beam' && p.beamTarget) {
+                ctx.strokeStyle = p.color; ctx.lineWidth = 3 + Math.random() * 3;
+                ctx.shadowBlur = 15; ctx.shadowColor = p.color;
+                ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.beamTarget.x, p.beamTarget.y); ctx.stroke();
+                ctx.shadowBlur = 0;
+            }
+
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            
+            if(p.skin === 'cyber') { ctx.shadowBlur = 10; ctx.shadowColor = '#0ff'; ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2; ctx.fillStyle = 'rgba(0, 255, 255, 0.1)'; }
+            if(p.skin === 'cosmic') { ctx.fillStyle = '#0f172a'; ctx.shadowBlur = 15; ctx.shadowColor = '#8b5cf6'; }
+            if(p.skin === 'infernal') { ctx.fillStyle = '#b91c1c'; ctx.shadowBlur = 20; ctx.shadowColor = '#ef4444'; }
+            if(p.skin === 'radiant') { ctx.fillStyle = '#fef08a'; ctx.shadowBlur = 30; ctx.shadowColor = '#facc15'; }
+            if(p.skin === 'abyssal') { ctx.fillStyle = '#000'; ctx.strokeStyle = '#7e22ce'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#4c1d95'; }
+            if(p.skin === 'glitch') { if(Math.random()<0.2) ctx.translate(MathHelper.rand(-3,3), MathHelper.rand(-3,3)); }
+
+            if(p.skin === 'cyber' || p.skin === 'abyssal') {
+                ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+            } else {
+                ctx.fillStyle = ctx.fillStyle !== '#000000' && p.skin !== 'default' ? ctx.fillStyle : p.color; 
+                ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.fill();
+            }
+
+            if (p.skin === 'cosmic') {
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(-6, -4, 2, 2); ctx.fillRect(4, -6, 1.5, 1.5); ctx.fillRect(-2, 5, 2, 2); ctx.fillRect(6, 4, 1, 1);
+            }
+            
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.radius * 0.4, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+
+            for(let d of state.drones) { ctx.fillStyle = '#cbd5e1'; ctx.beginPath(); MathHelper.drawPoly(ctx, d.x, d.y, 6, 3, state.gameTime*2); ctx.fill(); }
+            for(let b of state.blades) {
+                ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(b.angle + Math.PI/2);
+                ctx.fillStyle = '#f43f5e'; ctx.beginPath(); ctx.moveTo(0, -b.length/2); ctx.lineTo(4, 0); ctx.lineTo(0, b.length/2); ctx.lineTo(-4, 0); ctx.fill();
+                ctx.restore();
+            }
+
+            for(let proj of state.projectiles) {
+                ctx.fillStyle = proj.color; ctx.shadowBlur = 10; ctx.shadowColor = proj.color;
+                if(p.stats.weaponType === 'slash' && !proj.isEnemy) {
+                    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI*2); ctx.fill();
+                } else {
+                    ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.radius, 0, Math.PI * 2); ctx.fill(); 
+                }
+                ctx.shadowBlur = 0;
+            }
+
+            for(let pt of state.particles) {
+                ctx.fillStyle = pt.color; ctx.strokeStyle = pt.color; ctx.globalAlpha = pt.life / (pt.maxLife || 1); ctx.beginPath(); 
+                
+                if (pt.type === 'spin') {
+                    ctx.save();
+                    ctx.translate(pt.x, pt.y);
+                    ctx.rotate(pt.angle + (1 - pt.life/pt.maxLife) * Math.PI * 2.5);
+                    ctx.beginPath();
+                    ctx.arc(0, 0, pt.radius, -Math.PI/3, Math.PI/3);
+                    ctx.lineWidth = 20 * Math.sin((pt.life/pt.maxLife) * Math.PI);
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                    
+                    ctx.beginPath();
+                    ctx.arc(0, 0, pt.radius, Math.PI/3, Math.PI);
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.1 * (pt.life/pt.maxLife)})`;
+                    ctx.lineWidth = 8;
+                    ctx.stroke();
+                    ctx.restore();
+                    ctx.globalAlpha = 1.0;
+                    continue;
+                }
+                else if (pt.type === 'vertical_beam') {
+                    ctx.fillRect(pt.x - pt.radius, pt.y - vh, pt.radius * 2, vh);
+                    ctx.beginPath();
+                    ctx.ellipse(pt.x, pt.y, pt.radius, pt.radius * 0.5, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    ctx.globalAlpha = 1.0;
+                    continue;
+                }
+                else if(pt.isLine) { ctx.lineWidth = 1; ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.targetX, pt.targetY); ctx.stroke(); }
+                else if(pt.isPulse) { 
+                    ctx.lineWidth = 2; 
+                    let progress = 1 - (pt.life / (pt.maxLife || 0.3));
+                    let r = Math.max(0.1, pt.size * progress);
+                    ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); 
+                    ctx.stroke(); 
+                } 
+                else { ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI*2); ctx.fill(); }
+                ctx.globalAlpha = 1.0;
+            }
+
+            ctx.textAlign = 'center';
+            for(let ft of state.floatingTexts) { ctx.font = `bold ${ft.size}px "JetBrains Mono"`; ctx.fillStyle = ft.color; ctx.globalAlpha = ft.life; ctx.fillText(ft.text, ft.x, ft.y); }
+            ctx.globalAlpha = 1.0;
+
+            ctx.restore(); // Restore Map Clip
+            ctx.restore(); // Restore Camera translation
+            
+            // Anomaly Overlays
+            if (state.worldEvent.active === "BLOOD_MOON") {
+                ctx.fillStyle = 'rgba(220, 38, 38, 0.15)';
+                ctx.fillRect(0, 0, vw, vh);
+            }
+            if (state.worldEvent.active === "TIME_DISTORTION") {
+                ctx.fillStyle = 'rgba(56, 189, 248, 0.05)';
+                ctx.fillRect(0, 0, vw, vh);
+            }
+            if (state.worldEvent.active === "BLACKOUT") {
+                ctx.save();
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, vw, vh);
+                ctx.globalCompositeOperation = 'destination-out';
+                let screenPx = p.x - state.camera.x;
+                let screenPy = p.y - state.camera.y;
+                let grad = ctx.createRadialGradient(screenPx, screenPy, 100, screenPx, screenPy, 450);
+                grad.addColorStop(0, 'rgba(255, 255, 255, 1)');
+                grad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                ctx.fillStyle = grad;
+                ctx.beginPath(); ctx.arc(screenPx, screenPy, 450, 0, Math.PI*2); ctx.fill();
+                ctx.restore();
+            }
+            
+            if(p.dashCooldownTimer > 0) {
+                ctx.fillStyle = 'rgba(255,255,255,0.1)'; ctx.fillRect(vw/2 - 20, vh - 60, 40, 2);
+                ctx.fillStyle = '#fff'; ctx.fillRect(vw/2 - 20, vh - 60, 40 * (1 - p.dashCooldownTimer/p.stats.dashCooldown), 2);
+            }
+        }
+
+        function gameOver() {
+            state.status = 'GAMEOVER'; UI.hud.classList.add('hidden'); UI.tracker.classList.add('hidden'); UI.gameover.classList.remove('hidden');
+            const m = Math.floor(state.gameTime / 60).toString().padStart(2, '0'); const s = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
+            document.getElementById('go-time').innerText = `${m}:${s}`; document.getElementById('go-kills').innerText = state.player.progression.kills;
+            document.getElementById('go-level').innerText = state.player.progression.level;
+        }
+
+        function startGame() {
+            const selectedChar = document.querySelector('.char-card.selected').getAttribute('data-char');
+            const selectedSkin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
+            state.reset(selectedChar, selectedSkin);
+            state.status = 'PLAYING';
+            UI.menu.classList.add('hidden'); UI.gameover.classList.add('hidden'); UI.hud.classList.remove('hidden'); UI.hud.classList.add('flex');
+            updateHUD(); updateTrackerUI();
+        }
+
+        UI.charCards.forEach(card => { card.addEventListener('click', () => { UI.charCards.forEach(c => c.classList.remove('selected')); card.classList.add('selected'); }); });
+        UI.skinBtns.forEach(btn => { btn.addEventListener('click', () => { UI.skinBtns.forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); }); });
+
+        UI.btnShowLog.addEventListener('click', () => { UI.modalUpdateLog.classList.remove('hidden'); });
+        UI.btnCloseLog.addEventListener('click', () => { UI.modalUpdateLog.classList.add('hidden'); });
+
+        UI.menu.querySelector('#btn-start').addEventListener('click', startGame);
+        UI.gameover.querySelector('#btn-restart').addEventListener('click', startGame);
+        
+        UI.gameover.querySelector('#btn-mainmenu').addEventListener('click', () => {
+            UI.gameover.classList.add('hidden');
+            UI.menu.classList.remove('hidden');
+            state.status = 'MENU';
+            ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh);
+        });
+
+        let lastTime = 0;
+        function loop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            const dt = Math.min((timestamp - lastTime) / 1000, 0.1); 
+            lastTime = timestamp;
+
+            processInputs(); updateEngine(dt); draw();
+            requestAnimationFrame(loop);
+        }
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
