@@ -3,15 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Battle of the Shapes</title>
+    <title>Battle of the Shapes: Co-op Protocol</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
         body { margin: 0; overflow: hidden; background-color: #000; color: #fff; font-family: 'Inter', sans-serif; user-select: none; }
         .font-mono { font-family: 'JetBrains Mono', monospace; }
         
-        /* Modern UI Styles */
         .glass-panel { 
             background: rgba(15, 15, 20, 0.65); 
             backdrop-filter: blur(16px); 
@@ -64,6 +62,10 @@
         ::-webkit-scrollbar-thumb:hover { background: #555; }
         
         .radial-bg { background: radial-gradient(circle at 50% 0%, rgba(30,30,40,1) 0%, rgba(5,5,5,1) 70%); }
+
+        /* Party UI Animations */
+        @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.2); } 50% { box-shadow: 0 0 25px rgba(168, 85, 247, 0.6); } }
+        .party-active-glow { animation: pulse-glow 2s infinite; border-color: #a855f7 !important; }
     </style>
 </head>
 <body class="w-screen h-screen relative flex items-center justify-center text-slate-100 overflow-hidden">
@@ -71,54 +73,50 @@
     <!-- Game Canvas -->
     <canvas id="gameCanvas" class="absolute inset-0 z-0"></canvas>
 
-    <!-- Cloud Auth Modal -->
-    <div id="modal-auth" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
-        <div class="glass-panel w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10 p-8">
-            <div class="flex justify-between items-center mb-6 border-b border-white/10 pb-4">
-                <h2 class="text-2xl font-black tracking-tight text-white">SYSTEM.AUTH</h2>
-                <button id="btn-close-auth" class="text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
-            </div>
-            
-            <p class="text-sm text-slate-400 mb-6 font-mono">Connect to the mainframe to sync your progress across devices and secure your data.</p>
-            
-            <div class="space-y-4 font-mono">
-                <div>
-                    <label class="block text-[10px] text-sky-400 tracking-widest uppercase mb-1">Email Designation</label>
-                    <input type="email" id="auth-email" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-sky-500 transition-colors placeholder:text-slate-700" placeholder="pilot@sector.7">
-                </div>
-                <div>
-                    <label class="block text-[10px] text-sky-400 tracking-widest uppercase mb-1">Access Cipher</label>
-                    <input type="password" id="auth-pass" class="w-full bg-black/50 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-sky-500 transition-colors" placeholder="••••••••">
-                </div>
-                
-                <div id="auth-msg" class="text-xs font-bold text-rose-400 h-4 mt-2"></div>
-                
-                <div class="flex gap-3 pt-4">
-                    <button id="btn-login" class="flex-1 py-3 bg-white text-black font-bold tracking-widest text-sm rounded-lg hover:bg-sky-100 transition-all active:scale-[0.98]">AUTHENTICATE</button>
-                    <button id="btn-register" class="flex-1 py-3 bg-white/5 border border-white/10 text-white font-bold tracking-widest text-sm rounded-lg hover:bg-white/10 transition-all active:scale-[0.98]">REGISTER NEW</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Connection Status (replaces explicit Auth modal for a smoother experience) -->
+    <div id="sys-msg-container" class="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 pointer-events-none flex flex-col items-center gap-2"></div>
 
-    <!-- Update Log Modal -->
-    <div id="modal-update-log" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
-        <div class="glass-panel w-full max-w-2xl max-h-[80vh] rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10">
-            <div class="p-6 border-b border-white/5 flex justify-between items-center">
-                <h2 class="text-2xl font-black tracking-tight text-white">SYSTEM.LOG</h2>
-                <button id="btn-close-log" class="text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
+    <!-- Party / Multiplayer Modal -->
+    <div id="modal-party" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-xl pointer-events-auto transition-opacity">
+        <div class="glass-panel w-full max-w-md rounded-2xl flex flex-col overflow-hidden shadow-2xl border-white/10 p-8 relative">
+            <button id="btn-close-party" class="absolute top-4 right-6 text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
+            
+            <div id="party-view-select" class="block">
+                <h2 class="text-2xl font-black tracking-tight text-white mb-2">CO-OP PROTOCOL</h2>
+                <p class="text-sm text-slate-400 mb-8 font-mono">Establish a secure link with other survivors. Sync data streams to fight together.</p>
+                
+                <div class="space-y-4">
+                    <button id="btn-create-party" class="w-full py-4 bg-purple-600/20 text-purple-400 border border-purple-500/30 font-bold tracking-widest text-sm rounded-xl hover:bg-purple-600/40 transition-all">HOST NEW SESSION</button>
+                    
+                    <div class="flex items-center gap-4 my-4">
+                        <div class="h-px bg-white/10 flex-1"></div>
+                        <span class="text-xs font-mono text-slate-500">OR</span>
+                        <div class="h-px bg-white/10 flex-1"></div>
+                    </div>
+
+                    <div>
+                        <input type="text" id="party-code-input" maxlength="4" class="w-full bg-black/50 border border-white/10 rounded-xl px-4 py-4 text-center text-2xl tracking-[0.5em] text-white focus:outline-none focus:border-purple-500 transition-colors uppercase font-mono placeholder:text-slate-700" placeholder="CODE">
+                        <button id="btn-join-party" class="w-full mt-3 py-4 bg-white text-black font-bold tracking-widest text-sm rounded-xl hover:bg-slate-200 transition-all">JOIN SESSION</button>
+                    </div>
+                </div>
             </div>
-            <div class="p-8 overflow-y-auto font-mono text-sm text-slate-300 space-y-8">
-                <div>
-                    <h3 class="text-emerald-400 font-bold text-lg mb-3 flex items-center gap-3">
-                        <span class="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 text-xs tracking-widest font-sans uppercase">v4.0.0</span> 
-                        Supabase Cloud Sync
-                    </h3>
-                    <ul class="list-disc pl-5 space-y-2 text-slate-400">
-                        <li><strong class="text-white">Cloud Authentication:</strong> Create an account to permanently backup your save data to the cloud.</li>
-                        <li><strong class="text-white">Cross-Device Progression:</strong> Your shards, unlocks, and statistics now follow you wherever you play.</li>
-                        <li><strong class="text-white">Intelligent Merging:</strong> If you play offline, your progress will automatically sync to the cloud the next time you connect.</li>
+
+            <div id="party-view-lobby" class="hidden flex-col h-full">
+                <h2 class="text-xl font-black tracking-tight text-white mb-1 flex justify-between items-center">
+                    <span>SESSION LOBBY</span>
+                    <span id="lobby-code-display" class="bg-purple-500/20 text-purple-400 px-3 py-1 rounded border border-purple-500/30 tracking-widest">ABCD</span>
+                </h2>
+                <p class="text-xs text-slate-400 mb-6 font-mono" id="lobby-status-text">Awaiting Host...</p>
+                
+                <div class="flex-1 bg-black/40 rounded-xl border border-white/5 p-4 mb-6 min-h-[150px]">
+                    <ul id="lobby-player-list" class="space-y-3 font-mono text-sm">
+                        <!-- Populated by JS -->
                     </ul>
+                </div>
+
+                <div class="flex gap-3">
+                    <button id="btn-leave-party" class="px-4 py-3 bg-white/5 border border-white/10 text-slate-300 font-bold tracking-widest text-xs rounded-lg hover:bg-white/10 transition-all">LEAVE</button>
+                    <button id="btn-start-party" class="flex-1 py-3 bg-purple-500 text-white font-bold tracking-widest text-sm rounded-lg hover:bg-purple-400 transition-all shadow-[0_0_15px_rgba(168,85,247,0.4)] hidden">INITIATE LAUNCH</button>
                 </div>
             </div>
         </div>
@@ -127,22 +125,28 @@
     <!-- Main Menu -->
     <div id="screen-menu" class="absolute inset-0 z-10 flex flex-col radial-bg pointer-events-auto">
         
-        <!-- Top Nav Bar (Auth & Shards) -->
+        <!-- Top Nav Bar -->
         <div class="absolute top-0 left-0 w-full p-6 flex justify-between items-start z-20">
-            <!-- Auth Status Panel -->
-            <div id="auth-status-panel" class="glass-panel px-4 py-2 rounded-lg border-white/10 shadow-lg flex items-center gap-3">
-                <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse" id="auth-dot"></div>
-                <div id="auth-status" class="font-mono text-xs tracking-widest">
-                    <button id="btn-open-auth" class="text-slate-300 hover:text-white transition-colors font-bold uppercase">CONNECT TO CLOUD</button>
-                </div>
+            <!-- Connection Status -->
+            <div class="glass-panel px-4 py-2 rounded-lg border-white/10 shadow-lg flex items-center gap-3">
+                <div class="w-2 h-2 rounded-full bg-rose-500 animate-pulse" id="sys-auth-dot"></div>
+                <div class="font-mono text-xs tracking-widest text-slate-300" id="sys-auth-text">OFFLINE</div>
             </div>
 
-            <!-- Currency Display -->
-            <div class="glass-panel px-6 py-3 rounded-xl border-sky-500/30 shadow-[0_0_20px_rgba(56,189,248,0.1)] flex items-center gap-3">
-                <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
-                <div class="flex flex-col">
-                    <span class="text-[10px] font-mono text-sky-400/70 tracking-widest uppercase leading-none">Data Shards</span>
-                    <span class="font-mono font-bold text-lg leading-none" id="menu-shards-display">0</span>
+            <div class="flex gap-4">
+                <!-- Multiplayer Toggle -->
+                <button id="btn-open-party" class="glass-panel px-6 py-3 rounded-xl border-purple-500/30 shadow-[0_0_20px_rgba(168,85,247,0.1)] flex items-center gap-3 hover:bg-white/5 transition-colors group">
+                    <svg class="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+                    <span class="font-mono font-bold text-sm tracking-widest text-purple-300" id="btn-party-text">CO-OP</span>
+                </button>
+
+                <!-- Currency Display -->
+                <div class="glass-panel px-6 py-3 rounded-xl border-sky-500/30 shadow-[0_0_20px_rgba(56,189,248,0.1)] flex items-center gap-3">
+                    <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
+                    <div class="flex flex-col">
+                        <span class="text-[10px] font-mono text-sky-400/70 tracking-widest uppercase leading-none">Data Shards</span>
+                        <span class="font-mono font-bold text-lg leading-none" id="menu-shards-display">0</span>
+                    </div>
                 </div>
             </div>
         </div>
@@ -150,15 +154,11 @@
         <div class="w-full flex-1 flex flex-col md:flex-row max-w-7xl mx-auto h-full p-6 md:p-12 gap-12 pt-28 md:pt-20">
             <!-- Left Panel: Title -->
             <div class="w-full md:w-1/3 flex flex-col justify-center relative">
-                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs font-mono text-sky-400 w-max mb-6">SYSTEM v4.0.0 ONLINE</div>
+                <div class="inline-block px-3 py-1 bg-white/5 border border-white/10 rounded-full text-xs font-mono text-sky-400 w-max mb-6">SYSTEM v5.0.0 MULTIPLAYER</div>
                 <h1 class="text-5xl md:text-7xl font-black text-white mb-4 tracking-tighter leading-none">
                     BATTLE<br>OF THE<br><span class="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 to-indigo-500">SHAPES</span>
                 </h1>
-                <p class="text-slate-400 font-medium text-sm mb-12 leading-relaxed max-w-sm">Survive the geometric anomaly. Adapt your build. Slay the bosses. Never stop moving.</p>
-                
-                <button id="btn-show-log" class="text-left w-max px-4 py-2 bg-white/5 border border-white/10 rounded-lg text-slate-300 font-mono text-xs hover:bg-white/10 transition-colors flex items-center gap-3">
-                    View Patch Notes &rarr;
-                </button>
+                <p class="text-slate-400 font-medium text-sm mb-12 leading-relaxed max-w-sm">Survive the anomaly. Sync with allies. Slay the bosses. Never stop moving.</p>
             </div>
 
             <!-- Right Panel: Selection -->
@@ -167,7 +167,7 @@
                 <p class="text-slate-500 font-mono text-xs tracking-widest font-bold mb-4 uppercase">1. Draft Class</p>
                 
                 <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mb-10 shrink-0" id="class-grid">
-                    <!-- Unlocked Base Classes -->
+                    <!-- Base Classes -->
                     <div class="char-card selected glass-panel rounded-xl p-4 cursor-pointer" data-char="ronin" data-cost="0">
                         <h3 class="text-lg font-bold text-rose-400 mb-1">RONIN</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Massive 360° spinning slash.</p>
@@ -185,34 +185,34 @@
                     <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="paladin" data-cost="250">
                         <h3 class="text-lg font-bold text-yellow-500 mb-1">PALADIN</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Melee. Close-range pulsing AoE.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">250</span></div>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">250 Shards</span></div>
                     </div>
                     <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="ranger" data-cost="250">
                         <h3 class="text-lg font-bold text-emerald-400 mb-1">MARINE</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Extreme fire-rate auto-rifle.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">250</span></div>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">250 Shards</span></div>
                     </div>
                     <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="channeler" data-cost="250">
                         <h3 class="text-lg font-bold text-purple-400 mb-1">CHANNELER</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Ranged. Auto-locking laser beam.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">250</span></div>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">250 Shards</span></div>
                     </div>
-
+                    
                     <!-- Gimmick Classes (Costs 500) -->
                     <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="trapper" data-cost="500">
                         <h3 class="text-lg font-bold text-lime-400 mb-1">TRAPPER</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Calls orbital laser strikes.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">500</span></div>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">500 Shards</span></div>
                     </div>
                     <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="architect" data-cost="500">
                         <h3 class="text-lg font-bold text-zinc-300 mb-1">ARCHITECT</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Starts with Drones & Shields.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">500</span></div>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">500 Shards</span></div>
                     </div>
                     <div class="char-card glass-panel rounded-xl p-4 cursor-pointer locked-item" data-char="alchemist" data-cost="500">
                         <h3 class="text-lg font-bold text-cyan-400 mb-1">ALCHEMIST</h3>
                         <p class="text-slate-400 text-[10px] leading-tight h-8 font-mono">Gimmick. Bouncing multi-status orbs.</p>
-                        <div class="locked-overlay flex items-center justify-center pt-2"><svg class="w-6 h-6 text-white mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg><span class="font-mono font-bold text-sky-300">500</span></div>
+                        <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300">500 Shards</span></div>
                     </div>
                 </div>
 
@@ -230,7 +230,7 @@
                 </div>
 
                 <button id="btn-start" class="w-full py-5 bg-white text-black hover:bg-sky-100 font-bold tracking-widest text-lg rounded-xl transition-all shadow-[0_0_30px_rgba(255,255,255,0.2)] hover:shadow-[0_0_50px_rgba(255,255,255,0.4)] flex justify-center items-center gap-3 active:scale-[0.98]">
-                    INITIATE SEQUENCE &rarr;
+                    INITIATE SOLO SEQUENCE &rarr;
                 </button>
             </div>
         </div>
@@ -240,7 +240,7 @@
     <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden flex-col justify-between p-6 md:p-10">
         <div class="flex justify-between items-start w-full relative">
             
-            <div id="boss-hp-container" class="absolute top-0 left-1/2 transform -translate-x-1/2 w-full max-w-lg hidden flex-col items-center">
+            <div id="boss-hp-container" class="absolute top-0 left-1/2 transform -translate-x-1/2 w-full max-w-lg hidden flex-col items-center transition-all">
                 <span class="font-mono font-bold text-xs text-red-500 mb-2 tracking-[0.2em]" id="boss-name">ANOMALY</span>
                 <div class="w-full h-2 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-red-900/30">
                     <div id="boss-hp-fill" class="h-full bg-red-500 w-full transition-all duration-100"></div>
@@ -276,6 +276,9 @@
                 <div class="font-mono font-light text-4xl text-white tracking-tighter" id="hud-time">00:00</div>
                 <div class="font-mono text-xs text-slate-400 uppercase tracking-widest mt-1" id="hud-kills">0 KILLS</div>
                 <div class="font-mono font-bold text-xs text-fuchsia-400 mt-2 px-3 py-1 bg-fuchsia-500/10 rounded-full border border-fuchsia-500/20 hidden" id="hud-combo">COMBO x1.0</div>
+                
+                <!-- Party Tracker HUD -->
+                <div id="hud-party-list" class="mt-4 flex flex-col items-end gap-2"></div>
             </div>
         </div>
     </div>
@@ -288,7 +291,7 @@
         <div id="tracker-list" class="flex-1 overflow-y-auto pr-2 space-y-3 font-mono text-xs custom-scrollbar text-slate-300"></div>
     </div>
 
-    <!-- Level Up Screen -->
+    <!-- Upgrade Screen -->
     <div id="screen-levelup" class="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/60 backdrop-blur-lg hidden pointer-events-auto">
         <div class="text-center mb-12">
             <h2 class="text-4xl font-black text-white tracking-tight mb-2">SYSTEM UPGRADE</h2>
@@ -302,9 +305,8 @@
         <h1 class="text-6xl md:text-8xl font-black text-white mb-2 tracking-tighter">ANOMALY <span class="text-red-500">FATAL</span></h1>
         <p class="text-fuchsia-400 font-mono text-xl tracking-widest mb-8 uppercase" id="go-build-name">The Survivor</p>
         
-        <div class="glass-panel p-8 rounded-2xl mb-8 w-full max-w-4xl border border-white/10">
-            <!-- Top Stats -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 font-mono text-center mb-8 border-b border-white/10 pb-8">
+        <div class="glass-panel p-8 rounded-2xl mb-8 mt-8 w-full max-w-4xl border border-white/10 text-center">
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-6 font-mono mb-8 border-b border-white/10 pb-8">
                 <div class="border-b md:border-b-0 md:border-r border-white/10 pb-4 md:pb-0">
                     <p class="text-slate-500 text-[10px] tracking-widest uppercase mb-1">Time Alive</p>
                     <p class="text-3xl font-light text-white" id="go-time">00:00</p>
@@ -324,7 +326,7 @@
             </div>
             
             <!-- In-Depth Analytics -->
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 font-mono text-sm text-slate-300">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-4 font-mono text-sm text-slate-300 text-left mb-8">
                 <div class="flex justify-between border-b border-white/5 pb-2"><span>Damage Dealt:</span> <span class="text-white font-bold" id="stat-dmg">0</span></div>
                 <div class="flex justify-between border-b border-white/5 pb-2"><span>Highest DPS:</span> <span class="text-white font-bold" id="stat-dps">0</span></div>
                 <div class="flex justify-between border-b border-white/5 pb-2"><span>Damage Taken:</span> <span class="text-rose-400 font-bold" id="stat-taken">0</span></div>
@@ -334,9 +336,8 @@
                 <div class="flex justify-between border-b border-white/5 pb-2"><span>Status Applied:</span> <span class="text-fuchsia-400 font-bold" id="stat-effects">0</span></div>
                 <div class="flex justify-between border-b border-white/5 pb-2"><span>Synergies Activated:</span> <span class="text-yellow-500 font-bold" id="stat-syns">0</span></div>
             </div>
-
-            <!-- Meta Rewards -->
-            <div class="mt-8 pt-6 border-t border-white/10 flex justify-center items-center gap-4">
+            
+            <div class="flex justify-center items-center gap-4">
                 <span class="text-slate-400 font-mono text-xs tracking-widest uppercase">Data Harvested:</span>
                 <div class="bg-sky-500/10 border border-sky-500/20 px-6 py-2 rounded-full flex items-center gap-2">
                     <svg class="w-5 h-5 text-sky-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L2 22l6-10H6z"/></svg>
@@ -345,215 +346,112 @@
             </div>
         </div>
         
-        <div class="flex flex-col sm:flex-row gap-4">
-            <button id="btn-restart" class="px-12 py-4 bg-white text-black font-bold tracking-widest text-lg rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-3">
-                REBOOT SEQUENCE
-            </button>
-            <button id="btn-mainmenu" class="px-8 py-4 bg-white/5 text-white font-bold tracking-widest text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all flex items-center justify-center gap-3">
-                MAIN MENU
+        <div class="flex gap-4">
+            <button id="btn-mainmenu" class="px-8 py-4 bg-white/5 text-white font-bold tracking-widest text-lg rounded-xl border border-white/10 hover:bg-white/10 transition-all">
+                RETURN TO MENU
             </button>
         </div>
     </div>
 
-    <script>
-        // --- SUPABASE CLOUD SYNC SYSTEM ---
-        const supabaseUrl = 'https://puegcncwkzeqbsjjgalh.supabase.co';
-        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB1ZWdjbmN3a3plcWJzampnYWxoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzgxNTcwNjcsImV4cCI6MjA5MzczMzA2N30.F9JMhDhlkPg6e3Jna_HSRtNcDmfbCHLKZsGPh-tjoeM';
-        const supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, collection, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-        const CloudSync = {
-            user: null,
-            async init() {
-                // Initialize session on load
-                const { data: { session } } = await supabaseClient.auth.getSession();
-                this.handleSession(session);
-                
-                // Listen for auth changes (login, logout, register)
-                supabaseClient.auth.onAuthStateChange((_event, session) => {
-                    this.handleSession(session);
-                });
-            },
-            
-            async handleSession(session) {
-                this.user = session ? session.user : null;
-                this.updateUI();
-                
-                if (this.user) {
-                    await this.loadFromCloud();
-                }
-            },
-            
-            async login(email, password) {
-                document.getElementById('auth-msg').innerText = "Authenticating...";
-                document.getElementById('auth-msg').className = "text-xs font-bold text-sky-400 h-4 mt-2";
-                
-                const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-                
-                if (error) {
-                    document.getElementById('auth-msg').innerText = error.message;
-                    document.getElementById('auth-msg').className = "text-xs font-bold text-rose-400 h-4 mt-2";
-                } else {
-                    document.getElementById('auth-msg').innerText = "";
-                    document.getElementById('modal-auth').classList.add('hidden');
-                }
-            },
-            
-            async register(email, password) {
-                document.getElementById('auth-msg').innerText = "Registering system...";
-                document.getElementById('auth-msg').className = "text-xs font-bold text-sky-400 h-4 mt-2";
-                
-                const { error } = await supabaseClient.auth.signUp({ email, password });
-                
-                if (error) {
-                    document.getElementById('auth-msg').innerText = error.message;
-                    document.getElementById('auth-msg').className = "text-xs font-bold text-rose-400 h-4 mt-2";
-                } else {
-                    document.getElementById('auth-msg').innerText = "Registration complete. Connecting...";
-                    document.getElementById('auth-msg').className = "text-xs font-bold text-emerald-400 h-4 mt-2";
-                    setTimeout(() => {
-                        document.getElementById('auth-msg').innerText = "";
-                        document.getElementById('modal-auth').classList.add('hidden');
-                    }, 1500);
-                }
-            },
-            
-            async logout() {
-                await supabaseClient.auth.signOut();
-            },
-            
-            async loadFromCloud() {
-                const dot = document.getElementById('auth-dot');
-                dot.classList.remove('bg-rose-500', 'bg-emerald-500'); dot.classList.add('bg-sky-400', 'animate-pulse');
-                
-                // Fetch the save row for this specific user
-                const { data, error } = await supabaseClient.from('saves').select('*').eq('id', this.user.id).single();
-                
-                if (data) {
-                    // Overwrite local progress with cloud progress
-                    SaveSystem.data.shards = data.shards || 0;
-                    SaveSystem.data.unlockedChars = data.unlocked_chars || ['ronin', 'lancer', 'bruiser'];
-                    SaveSystem.data.unlockedSkins = data.unlocked_skins || ['default'];
-                    SaveSystem.data.stats = data.stats || { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 };
-                    
-                    // Persist to localStorage immediately
-                    SaveSystem.saveLocal();
-                    SaveSystem.updateMenuUI();
-                    
-                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-emerald-500');
-                    console.log("Cloud save loaded successfully.");
-                } else if (error && error.code === 'PGRST116') {
-                    // No rows found. This means they are a brand new user.
-                    // We take their CURRENT local save and upload it to the cloud to initialize them.
-                    console.log("No cloud save found. Creating new cloud record from local data...");
-                    await this.saveToCloud();
-                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-emerald-500');
-                } else {
-                    console.error("Failed to load cloud save:", error);
-                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-rose-500');
-                }
-            },
-            
-            async saveToCloud() {
-                if (!this.user) return; // Silent abort if playing offline/guest
-                
-                const dot = document.getElementById('auth-dot');
-                dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-sky-400', 'animate-pulse');
-                
-                const saveData = {
-                    id: this.user.id,
-                    shards: SaveSystem.data.shards,
-                    unlocked_chars: SaveSystem.data.unlockedChars,
-                    unlocked_skins: SaveSystem.data.unlockedSkins,
-                    stats: SaveSystem.data.stats,
-                    updated_at: new Date().toISOString()
-                };
-                
-                // Upsert updates the row if the user ID exists, otherwise creates it
-                const { error } = await supabaseClient.from('saves').upsert(saveData);
-                
-                if (error) {
-                    console.error("Cloud save failed", error);
-                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-rose-500');
-                } else {
-                    dot.classList.remove('bg-sky-400', 'animate-pulse'); dot.classList.add('bg-emerald-500');
-                }
-            },
-            
-            updateUI() {
-                const container = document.getElementById('auth-status');
-                const dot = document.getElementById('auth-dot');
-                
-                if(this.user) {
-                    container.innerHTML = `<span class="text-emerald-400">${this.user.email}</span> <button id="btn-logout" class="ml-3 text-[10px] text-slate-500 hover:text-white underline">DISCONNECT</button>`;
-                    dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
-                    
-                    document.getElementById('btn-logout').addEventListener('click', () => this.logout());
-                } else {
-                    container.innerHTML = `<button id="btn-open-auth" class="text-slate-300 hover:text-white transition-colors font-bold uppercase">CONNECT TO CLOUD</button>`;
-                    dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
-                    
-                    document.getElementById('btn-open-auth').addEventListener('click', () => {
-                        document.getElementById('modal-auth').classList.remove('hidden');
-                    });
-                }
-            }
-        };
+        // Firebase Configuration injected by environment
+        const appId = typeof __app_id !== 'undefined' ? __app_id : 'battle-shapes-v5';
+        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : { projectId: 'demo-project' };
+        
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+        const auth = getAuth(app);
+        let currentUser = null;
 
-        // --- SAVE SYSTEM (Local + Triggering Cloud) ---
+        // UI Helpers
+        function showSysMsg(text, colorClass = 'text-sky-400', bgClass = 'bg-sky-500/10 border-sky-500/20') {
+            const container = document.getElementById('sys-msg-container');
+            const el = document.createElement('div');
+            el.className = `font-mono text-xs px-4 py-2 rounded-full border backdrop-blur-md transition-all duration-300 translate-y-[-20px] opacity-0 ${colorClass} ${bgClass}`;
+            el.innerText = text;
+            container.appendChild(el);
+            
+            // Animate in
+            setTimeout(() => { el.classList.remove('translate-y-[-20px]', 'opacity-0'); }, 10);
+            // Animate out
+            setTimeout(() => { 
+                el.classList.add('opacity-0'); 
+                setTimeout(() => el.remove(), 300);
+            }, 3000);
+        }
+
+        // --- AUTHENTICATION & SAVE SYSTEM ---
         const SaveSystem = {
-            data: {
-                shards: 0,
-                unlockedChars: ['ronin', 'lancer', 'bruiser'],
-                unlockedSkins: ['default'],
-                stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 }
-            },
-            init() {
+            data: { shards: 0, unlockedChars: ['ronin', 'lancer', 'bruiser'], unlockedSkins: ['default'], stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 } },
+            async init() {
+                // Determine Auth Strategy
                 try {
-                    const saved = localStorage.getItem('bots_save_data_v4'); // Incremented version to clear old bad data
-                    if (saved) {
-                        const parsed = JSON.parse(saved);
-                        this.data = { ...this.data, ...parsed, stats: { ...this.data.stats, ...(parsed.stats || {}) } };
-                        // Ensure arrays don't get corrupted
-                        if(!Array.isArray(this.data.unlockedChars)) this.data.unlockedChars = ['ronin', 'lancer', 'bruiser'];
-                        if(!Array.isArray(this.data.unlockedSkins)) this.data.unlockedSkins = ['default'];
+                    if (typeof __initial_auth_token !== 'undefined') {
+                        await signInWithCustomToken(auth, __initial_auth_token);
+                    } else {
+                        await signInAnonymously(auth);
                     }
                 } catch (e) {
-                    console.error("Save data corrupted. Starting fresh.", e);
+                    console.error("Auth init failed", e);
+                    showSysMsg("AUTH FAILURE - PLAYING OFFLINE", "text-rose-400", "bg-rose-500/10 border-rose-500/20");
                 }
-                this.updateMenuUI();
-                
-                // Initialize Cloud Auth after local data loads
-                CloudSync.init();
+
+                onAuthStateChanged(auth, async (user) => {
+                    currentUser = user;
+                    const dot = document.getElementById('sys-auth-dot');
+                    const text = document.getElementById('sys-auth-text');
+                    
+                    if (user) {
+                        dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
+                        text.innerText = user.isAnonymous ? "LINKED: GUEST" : "LINKED: CLOUD";
+                        await this.load();
+                    } else {
+                        dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
+                        text.innerText = "OFFLINE";
+                    }
+                });
             },
-            saveLocal() {
-                try { localStorage.setItem('bots_save_data_v4', JSON.stringify(this.data)); } 
-                catch (e) { console.error("Failed to save data locally.", e); }
+            async load() {
+                if (!currentUser) return;
+                try {
+                    const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
+                    const snap = await getDoc(saveRef);
+                    if (snap.exists()) {
+                        this.data = { ...this.data, ...snap.data() };
+                        if(!this.data.stats) this.data.stats = { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0 };
+                    } else {
+                        // Create initial save
+                        await setDoc(saveRef, this.data);
+                    }
+                    this.updateMenuUI();
+                    showSysMsg("DATA STREAM SYNCED", "text-emerald-400", "bg-emerald-500/10 border-emerald-500/20");
+                } catch (e) {
+                    console.error("Load failed", e);
+                }
             },
-            save() {
-                // Wrapper to save locally, and trigger a background cloud upload if logged in
-                this.saveLocal();
-                CloudSync.saveToCloud();
+            async save() {
+                if (!currentUser) return;
+                try {
+                    const saveRef = doc(db, 'artifacts', appId, 'users', currentUser.uid, 'saves', 'main');
+                    await setDoc(saveRef, this.data, { merge: true });
+                } catch (e) {
+                    console.error("Save failed", e);
+                }
             },
             awardShards(amount) {
-                if(isNaN(amount) || amount < 0) return; // Safety check
                 this.data.shards += amount;
                 this.save();
                 this.updateMenuUI();
             },
-            unlockClass(charId, cost) {
-                if (this.data.shards >= cost && !this.data.unlockedChars.includes(charId)) {
+            unlock(type, id, cost) {
+                const arr = type === 'char' ? this.data.unlockedChars : this.data.unlockedSkins;
+                if (this.data.shards >= cost && !arr.includes(id)) {
                     this.data.shards -= cost;
-                    this.data.unlockedChars.push(charId);
-                    this.save();
-                    this.updateMenuUI();
-                    return true;
-                }
-                return false;
-            },
-            unlockSkin(skinId, cost) {
-                if (this.data.shards >= cost && !this.data.unlockedSkins.includes(skinId)) {
-                    this.data.shards -= cost;
-                    this.data.unlockedSkins.push(skinId);
+                    arr.push(id);
                     this.save();
                     this.updateMenuUI();
                     return true;
@@ -563,7 +461,6 @@
             updateMenuUI() {
                 document.getElementById('menu-shards-display').innerText = this.data.shards;
                 
-                // Update Classes UI
                 document.querySelectorAll('.char-card').forEach(card => {
                     const id = card.getAttribute('data-char');
                     if (this.data.unlockedChars.includes(id)) {
@@ -575,7 +472,6 @@
                     }
                 });
 
-                // Update Skins UI
                 document.querySelectorAll('.skin-btn').forEach(btn => {
                     const id = btn.getAttribute('data-skin');
                     if (this.data.unlockedSkins.includes(id)) {
@@ -589,12 +485,263 @@
             }
         };
 
+        // --- MULTIPLAYER PARTY SYSTEM ---
+        const Party = {
+            id: null,
+            isHost: false,
+            data: null,
+            unsub: null,
+            syncInterval: null,
+            remotePlayers: {}, // { uid: { x, y, hp, maxHp, skin, charId } }
+
+            generateCode() {
+                const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+                let code = '';
+                for(let i=0; i<4; i++) code += chars.charAt(Math.floor(Math.random() * chars.length));
+                return code;
+            },
+
+            getDocRef(code) {
+                return doc(db, 'artifacts', appId, 'public', 'data', 'parties', code);
+            },
+
+            async host() {
+                if (!currentUser) return;
+                const code = this.generateCode();
+                const ref = this.getDocRef(code);
+                
+                const charId = document.querySelector('.char-card.selected').getAttribute('data-char');
+                const skin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
+
+                try {
+                    await setDoc(ref, {
+                        host: currentUser.uid,
+                        status: 'LOBBY',
+                        seed: Math.floor(Math.random() * 1000000),
+                        players: {
+                            [currentUser.uid]: { name: `Player_${code.substring(0,2)}`, x: 0, y: 0, hp: 100, maxHp: 100, charId, skin }
+                        }
+                    });
+                    
+                    this.id = code;
+                    this.isHost = true;
+                    this.startListening();
+                    
+                    document.getElementById('party-view-select').classList.add('hidden');
+                    document.getElementById('party-view-lobby').classList.remove('hidden');
+                    document.getElementById('lobby-code-display').innerText = code;
+                    document.getElementById('btn-start-party').classList.remove('hidden');
+                    document.getElementById('lobby-status-text').innerText = "Waiting for others to join...";
+                    document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
+                    document.getElementById('btn-open-party').classList.add('party-active-glow');
+                    showSysMsg("PARTY HOSTED SUCCESSFULLY");
+                } catch(e) { console.error("Host error", e); showSysMsg("FAILED TO HOST", "text-rose-400", "bg-rose-500/10"); }
+            },
+
+            async join(code) {
+                if (!currentUser || !code) return;
+                code = code.toUpperCase();
+                const ref = this.getDocRef(code);
+                
+                try {
+                    const snap = await getDoc(ref);
+                    if (!snap.exists()) {
+                        showSysMsg("SESSION NOT FOUND", "text-rose-400", "bg-rose-500/10");
+                        return;
+                    }
+                    if (snap.data().status !== 'LOBBY') {
+                        showSysMsg("SESSION ALREADY IN PROGRESS", "text-rose-400", "bg-rose-500/10");
+                        return;
+                    }
+                    if (Object.keys(snap.data().players).length >= 4) {
+                        showSysMsg("SESSION FULL", "text-yellow-400", "bg-yellow-500/10");
+                        return;
+                    }
+
+                    const charId = document.querySelector('.char-card.selected').getAttribute('data-char');
+                    const skin = document.querySelector('.skin-btn.selected').getAttribute('data-skin');
+
+                    await updateDoc(ref, {
+                        [`players.${currentUser.uid}`]: { name: `Ally_${code.substring(0,2)}`, x: 0, y: 0, hp: 100, maxHp: 100, charId, skin }
+                    });
+
+                    this.id = code;
+                    this.isHost = false;
+                    this.startListening();
+
+                    document.getElementById('party-view-select').classList.add('hidden');
+                    document.getElementById('party-view-lobby').classList.remove('hidden');
+                    document.getElementById('lobby-code-display').innerText = code;
+                    document.getElementById('btn-start-party').classList.add('hidden');
+                    document.getElementById('lobby-status-text').innerText = "Awaiting Host to start...";
+                    document.getElementById('btn-party-text').innerText = `PARTY: ${code}`;
+                    document.getElementById('btn-open-party').classList.add('party-active-glow');
+                    document.getElementById('btn-start').innerText = "WAITING FOR HOST...";
+                    document.getElementById('btn-start').classList.add('opacity-50', 'pointer-events-none');
+                    showSysMsg("JOINED SESSION");
+                } catch(e) { console.error("Join error", e); showSysMsg("FAILED TO JOIN", "text-rose-400", "bg-rose-500/10"); }
+            },
+
+            async leave() {
+                if (!this.id || !currentUser) return;
+                const ref = this.getDocRef(this.id);
+                try {
+                    if (this.isHost) {
+                        // If host leaves lobby, destroy it. (In a real app, maybe reassign host).
+                        await updateDoc(ref, { status: 'CLOSED' });
+                    } else {
+                        await updateDoc(ref, { [`players.${currentUser.uid}`]: deleteField() });
+                    }
+                } catch(e) {} // Ignore errors on leave
+                
+                this.cleanup();
+            },
+
+            cleanup() {
+                if (this.unsub) this.unsub();
+                if (this.syncInterval) clearInterval(this.syncInterval);
+                this.id = null;
+                this.isHost = false;
+                this.data = null;
+                this.remotePlayers = {};
+                
+                document.getElementById('party-view-select').classList.remove('hidden');
+                document.getElementById('party-view-lobby').classList.add('hidden');
+                document.getElementById('btn-party-text').innerText = "CO-OP";
+                document.getElementById('btn-open-party').classList.remove('party-active-glow');
+                document.getElementById('btn-start').innerText = "INITIATE SOLO SEQUENCE →";
+                document.getElementById('btn-start').classList.remove('opacity-50', 'pointer-events-none');
+                document.getElementById('modal-party').classList.add('hidden');
+            },
+
+            startListening() {
+                if (this.unsub) this.unsub();
+                const ref = this.getDocRef(this.id);
+                
+                this.unsub = onSnapshot(ref, (snap) => {
+                    if (!snap.exists()) { this.leave(); return; }
+                    this.data = snap.data();
+
+                    if (this.data.status === 'CLOSED') {
+                        showSysMsg("SESSION CLOSED BY HOST", "text-yellow-400", "bg-yellow-500/10");
+                        this.cleanup();
+                        return;
+                    }
+
+                    // Update Lobby UI
+                    if (document.getElementById('party-view-lobby').classList.contains('hidden') === false) {
+                        const list = document.getElementById('lobby-player-list');
+                        list.innerHTML = '';
+                        for (let uid in this.data.players) {
+                            const p = this.data.players[uid];
+                            const isMe = uid === currentUser.uid;
+                            const isH = uid === this.data.host;
+                            list.innerHTML += `
+                                <li class="flex justify-between items-center bg-white/5 px-3 py-2 rounded border border-white/5">
+                                    <span class="${isMe ? 'text-sky-400 font-bold' : 'text-slate-300'}">${isH ? '👑 ' : ''}${p.name} ${isMe ? '(You)' : ''}</span>
+                                    <span class="text-xs text-slate-500 uppercase">${p.charId}</span>
+                                </li>
+                            `;
+                        }
+                    }
+
+                    // Handle Game Start
+                    if (this.data.status === 'PLAYING' && state.status === 'MENU') {
+                        document.getElementById('modal-party').classList.add('hidden');
+                        startGame(this.data.seed); // Pass shared seed
+                    }
+
+                    // Update remote players in game
+                    if (state.status === 'PLAYING') {
+                        this.remotePlayers = {};
+                        for (let uid in this.data.players) {
+                            if (uid !== currentUser.uid) {
+                                this.remotePlayers[uid] = this.data.players[uid];
+                            }
+                        }
+                        this.updatePartyHUD();
+                    }
+                }, (error) => {
+                    console.error("Party stream error", error);
+                });
+            },
+
+            async triggerStart() {
+                if (!this.isHost || !this.id) return;
+                try {
+                    await updateDoc(this.getDocRef(this.id), { status: 'PLAYING' });
+                } catch(e) { console.error("Start error", e); }
+            },
+
+            startSyncing() {
+                if (!this.id || !currentUser) return;
+                // Sync position every 150ms to save Firestore reads/writes while keeping it somewhat smooth
+                this.syncInterval = setInterval(async () => {
+                    if (state.status !== 'PLAYING') return;
+                    try {
+                        const p = state.player;
+                        await updateDoc(this.getDocRef(this.id), {
+                            [`players.${currentUser.uid}.x`]: Math.floor(p.x),
+                            [`players.${currentUser.uid}.y`]: Math.floor(p.y),
+                            [`players.${currentUser.uid}.hp`]: Math.floor(p.stats.hp)
+                        });
+                    } catch(e) {}
+                }, 150);
+            },
+
+            updatePartyHUD() {
+                const container = document.getElementById('hud-party-list');
+                container.innerHTML = '';
+                for (let uid in this.remotePlayers) {
+                    const rp = this.remotePlayers[uid];
+                    const hpPercent = Math.max(0, rp.hp / rp.maxHp) * 100;
+                    container.innerHTML += `
+                        <div class="flex flex-col items-end gap-1 mb-2 bg-black/40 p-2 rounded border border-white/10 backdrop-blur-md">
+                            <span class="text-[10px] font-mono text-purple-300 tracking-widest">${rp.name}</span>
+                            <div class="w-24 h-1 bg-white/10 rounded-full overflow-hidden">
+                                <div class="h-full bg-purple-500 transition-all duration-300" style="width: ${hpPercent}%"></div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+        };
+
+        // UI Bindings for Party
+        document.getElementById('btn-open-party').addEventListener('click', () => {
+            if (!currentUser) { showSysMsg("MUST CONNECT TO MAINFRAME FIRST", "text-yellow-400", "bg-yellow-500/10"); return; }
+            document.getElementById('modal-party').classList.remove('hidden');
+        });
+        document.getElementById('btn-close-party').addEventListener('click', () => document.getElementById('modal-party').classList.add('hidden'));
+        
+        document.getElementById('btn-create-party').addEventListener('click', () => Party.host());
+        document.getElementById('btn-join-party').addEventListener('click', () => {
+            const code = document.getElementById('party-code-input').value;
+            Party.join(code);
+        });
+        document.getElementById('btn-leave-party').addEventListener('click', () => Party.leave());
+        document.getElementById('btn-start-party').addEventListener('click', () => Party.triggerStart());
+
+
+        // --- GAME ENGINE ---
+        
         const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d', { alpha: false }); 
+        const ctx = canvas.getContext('2d', { alpha: false });
         let vw, vh;
 
         function resize() { vw = window.innerWidth; vh = window.innerHeight; canvas.width = vw; canvas.height = vh; }
         window.addEventListener('resize', resize); resize();
+
+        // Simple Seeded PRNG for identical spawns in Co-op
+        function splitmix32(a) {
+            return function() {
+                a |= 0; a = a + 0x9e3779b9 | 0;
+                let t = a ^ a >>> 16; t = Math.imul(t, 0x21f0aaad);
+                t = t ^ t >>> 15; t = Math.imul(t, 0x735a2d97);
+                return ((t = t ^ t >>> 15) >>> 0) / 4294967296;
+            }
+        }
+        let seededRandom = Math.random; // Default to normal random
 
         const UI = {
             menu: document.getElementById('screen-menu'), hud: document.getElementById('screen-hud'),
@@ -605,13 +752,8 @@
             levelText: document.getElementById('hud-level'), timeText: document.getElementById('hud-time'), 
             killsText: document.getElementById('hud-kills'), comboText: document.getElementById('hud-combo'), 
             upgradeContainer: document.getElementById('upgrade-container'),
-            charCards: document.querySelectorAll('.char-card'), skinBtns: document.querySelectorAll('.skin-btn'),
             bossContainer: document.getElementById('boss-hp-container'), bossHpFill: document.getElementById('boss-hp-fill'), 
-            bossName: document.getElementById('boss-name'),
-            modalUpdateLog: document.getElementById('modal-update-log'), btnShowLog: document.getElementById('btn-show-log'), btnCloseLog: document.getElementById('btn-close-log'),
-            modalAuth: document.getElementById('modal-auth'), btnCloseAuth: document.getElementById('btn-close-auth'),
-            btnLogin: document.getElementById('btn-login'), btnRegister: document.getElementById('btn-register'),
-            authEmail: document.getElementById('auth-email'), authPass: document.getElementById('auth-pass')
+            bossName: document.getElementById('boss-name')
         };
 
         const CHARACTERS = {
@@ -712,7 +854,7 @@
             dist: (p1, p2) => Math.hypot(p2.x - p1.x, p2.y - p1.y),
             angle: (p1, p2) => Math.atan2(p2.y - p1.y, p2.x - p1.x),
             lerp: (start, end, amt) => (1 - amt) * start + amt * end,
-            rand: (min, max) => Math.random() * (max - min) + min,
+            rand: (min, max) => seededRandom() * (max - min) + min,
             drawPoly: (ctx, x, y, r, sides, rot) => {
                 if(sides === 0) { ctx.arc(x, y, r, 0, Math.PI*2); return; }
                 for (let i = 0; i < sides; i++) {
@@ -724,10 +866,15 @@
         };
 
         class GameState {
-            constructor() { this.reset('bruiser', 'default'); }
-            reset(charId, skin) {
+            constructor() { this.status = 'MENU'; }
+            reset(charId, skin, seed) {
                 this.status = 'MENU'; this.gameTime = 0; this.timeScale = 1.0;
-                const baseStat = CHARACTERS[charId];
+                
+                // Initialize Seeded Random if a seed is provided (Multiplayer)
+                if (seed !== undefined) seededRandom = splitmix32(seed);
+                else seededRandom = Math.random;
+
+                const baseStat = CHARACTERS[charId] || CHARACTERS['bruiser'];
 
                 this.player = {
                     charId: charId, skin: skin, color: baseStat.color, x: 0, y: 0, radius: 15,
@@ -765,8 +912,8 @@
         let commandQueue = []; 
 
         const keys = { w: false, a: false, s: false, d: false, ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false, " ": false };
-        window.addEventListener('keydown', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = true; else if(keys.hasOwnProperty(e.key)) keys[e.key] = true; });
-        window.addEventListener('keyup', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = false; else if(keys.hasOwnProperty(e.key)) keys[e.key] = false; });
+        window.addEventListener('keydown', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = true; });
+        window.addEventListener('keyup', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = false; });
         window.addEventListener('keydown', e => {
             if((e.key === 'u' || e.key === 'U') && state.status === 'PLAYING') {
                 const tr = UI.tracker;
@@ -806,8 +953,8 @@
             let regulars = validUpgrades.filter(u => !u.req && !u.isForbidden);
             let forbiddens = validUpgrades.filter(u => u.isForbidden);
             
-            let shuffledRegs = [...regulars].sort(() => 0.5 - Math.random());
-            let shuffledSyns = [...synergies].sort(() => 0.5 - Math.random());
+            let shuffledRegs = [...regulars].sort(() => 0.5 - seededRandom());
+            let shuffledSyns = [...synergies].sort(() => 0.5 - seededRandom());
             
             let selected = [];
             if (shuffledSyns.length > 0) {
@@ -817,8 +964,8 @@
                 selected = shuffledRegs.slice(0, 3);
             }
 
-            if(forbiddens.length > 0 && Math.random() < 0.05) selected[selected.length - 1] = forbiddens[Math.floor(Math.random() * forbiddens.length)];
-            selected.sort(() => 0.5 - Math.random());
+            if(forbiddens.length > 0 && seededRandom() < 0.05) selected[selected.length - 1] = forbiddens[Math.floor(seededRandom() * forbiddens.length)];
+            selected.sort(() => 0.5 - seededRandom());
 
             selected.forEach(upg => {
                 const isSyn = upg.req && upg.req.length > 0;
@@ -912,24 +1059,24 @@
         function syncSummons() {
             const p = state.player;
             const reqOrbitals = p.summons.orbitals || 0;
-            while(state.orbitals.length < reqOrbitals) state.orbitals.push({ angle: Math.random() * Math.PI*2, dist: 70, radius: 6, dmg: 15 });
+            while(state.orbitals.length < reqOrbitals) state.orbitals.push({ angle: seededRandom() * Math.PI*2, dist: 70, radius: 6, dmg: 15 });
             const reqDrones = p.summons.drones || 0;
             while(state.drones.length < reqDrones) state.drones.push({ x: p.x, y: p.y, targetX: p.x, targetY: p.y, lastFire: 0, cooldown: 1.0 });
             const reqBlades = p.summons.blades || 0;
-            while(state.blades.length < reqBlades) state.blades.push({ angle: Math.random() * Math.PI*2, dist: 90, length: 45, damage: 30 });
+            while(state.blades.length < reqBlades) state.blades.push({ angle: seededRandom() * Math.PI*2, dist: 90, length: 45, damage: 30 });
         }
 
         function spawnEnemy(isSwarm = false) {
-            const angle = Math.random() * Math.PI * 2;
+            const angle = seededRandom() * Math.PI * 2;
             const dist = isSwarm ? MathHelper.rand(600, 1000) : Math.max(vw, vh) * 0.6; 
             state.spawner.waveMult = 1.0 + (state.gameTime / 60) * 0.5; 
             
             let maxTier = Math.min(TIERS.length - 1, Math.floor(state.gameTime / 60)); 
-            let tierIdx = isSwarm ? Math.floor(Math.random() * Math.min(2, maxTier + 1)) : Math.max(0, Math.floor(Math.random() * (maxTier + 1)));
-            if (!isSwarm && Math.random() < 0.3) tierIdx = maxTier; 
+            let tierIdx = isSwarm ? Math.floor(seededRandom() * Math.min(2, maxTier + 1)) : Math.max(0, Math.floor(seededRandom() * (maxTier + 1)));
+            if (!isSwarm && seededRandom() < 0.3) tierIdx = maxTier; 
             
             const tier = TIERS[tierIdx];
-            const shape = SHAPES[Math.floor(Math.random() * SHAPES.length)];
+            const shape = SHAPES[Math.floor(seededRandom() * SHAPES.length)];
             
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
@@ -942,9 +1089,9 @@
         }
 
         function spawnElite() {
-            const angle = Math.random() * Math.PI * 2;
+            const angle = seededRandom() * Math.PI * 2;
             const dist = Math.max(vw, vh) * 0.5;
-            const t = ELITE_TYPES[Math.floor(Math.random() * ELITE_TYPES.length)];
+            const t = ELITE_TYPES[Math.floor(seededRandom() * ELITE_TYPES.length)];
             
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
@@ -959,7 +1106,7 @@
         }
 
         function spawnBoss() {
-            const angle = Math.random() * Math.PI * 2;
+            const angle = seededRandom() * Math.PI * 2;
             const dist = Math.max(vw, vh) * 0.5;
             const waveScale = 1.0 + state.spawner.bossesSpawned;
             const t = BOSS_TEMPLATES[state.spawner.bossesSpawned % BOSS_TEMPLATES.length];
@@ -995,7 +1142,7 @@
             let dmg = baseDmg * p.combo;
             if(p.stats.bossDmg && (e.isBoss || e.isElite)) dmg *= p.stats.bossDmg;
             
-            let isCrit = Math.random() < p.stats.critChance;
+            let isCrit = seededRandom() < p.stats.critChance;
             if(isCrit) { dmg *= p.stats.critMult; p.runStats.critsLanded++; }
             e.hp -= dmg;
             p.runStats.damageDealt += dmg;
@@ -1015,7 +1162,7 @@
                 }
             }
 
-            if(Math.random() < 0.3 || isCrit) {
+            if(seededRandom() < 0.3 || isCrit) {
                 let textColor = colorOverride || (isCrit ? '#fde047' : '#ffffff');
                 let size = isCrit ? 14 : 10;
                 state.floatingTexts.push({ x: e.x + MathHelper.rand(-10,10), y: e.y - e.radius - 5, text: Math.floor(dmg).toString(), life: 0.5, color: textColor, vy: -20, size });
@@ -1031,7 +1178,7 @@
             const p = state.player;
             
             if (!isTrueDamage) {
-                if(Math.random() < p.stats.dodge) { 
+                if(seededRandom() < p.stats.dodge) { 
                     state.floatingTexts.push({ x: p.x, y: p.y - 20, text: "DODGE", life: 0.5, color: '#94a3b8', vy: -20, size: 10 }); 
                     p.runStats.dodgesTriggered++;
                     if (p.effects.ghostVolley) {
@@ -1157,12 +1304,12 @@
                 let targetAngle = orb.angle + (i * Math.PI * 2 / state.orbitals.length);
                 let ox = p.x + Math.cos(targetAngle) * orb.dist; let oy = p.y + Math.sin(targetAngle) * orb.dist;
                 for(let e of state.enemies) {
-                    if(MathHelper.dist({x:ox, y:oy}, e) < orb.radius + e.radius && Math.random() < 0.1) applyDamage(e, p.stats.damage * 0.5, '#38bdf8');
+                    if(MathHelper.dist({x:ox, y:oy}, e) < orb.radius + e.radius && seededRandom() < 0.1) applyDamage(e, p.stats.damage * 0.5, '#38bdf8');
                 }
                 state.particles.push({x: ox, y: oy, vx: 0, vy: 0, life: 0.1, color: 'rgba(56,189,248,0.5)', size: orb.radius});
                 
                 if(p.effects.orbitalTurret && state.gameTime % 0.8 < dtReal) {
-                     let target = state.enemies[Math.floor(Math.random() * state.enemies.length)];
+                     let target = state.enemies[Math.floor(seededRandom() * state.enemies.length)];
                      if(target && MathHelper.dist({x:ox, y:oy}, target) < 400) {
                          createProjectile(ox, oy, MathHelper.angle({x:ox, y:oy}, target), { projectileSpeed: 600, damage: p.stats.damage * 0.4, attackRange: 400, scale: 0.5 }, {}, '#67e8f9');
                      }
@@ -1194,7 +1341,7 @@
             if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.elitesSpawned + 1) * 25 && !state.bossActive) spawnElite();
             if (p.progression.kills > 0 && p.progression.kills >= (state.spawner.lastAnomalyKills + 1) * 300 && !state.bossActive) {
                 let events = ["TIME_DISTORTION", "BLOOD_MOON"];
-                state.worldEvent.active = events[Math.floor(Math.random() * events.length)];
+                state.worldEvent.active = events[Math.floor(seededRandom() * events.length)];
                 state.worldEvent.timer = 15;
                 state.spawner.lastAnomalyKills++;
                 state.floatingTexts.push({ x: p.x, y: p.y - 60, text: `ANOMALY: ${state.worldEvent.active.replace('_', ' ')}`, life: 3.0, color: '#facc15', vy: -20, size: 20 });
@@ -1227,7 +1374,7 @@
                 if (nearest) {
                     p.beamTarget = nearest;
                     applyDamage(nearest, p.stats.damage * dt, p.color);
-                    if(p.stats.lifesteal > 0 && Math.random()<0.1) {
+                    if(p.stats.lifesteal > 0 && seededRandom()<0.1) {
                         let heal = p.stats.damage * dt * p.stats.lifesteal;
                         p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal);
                         p.runStats.healingReceived += heal;
@@ -1245,7 +1392,7 @@
                             if (p.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + p.effects.burn; p.runStats.statusEffectsApplied++; }
                         }
                     }
-                    state.particles.push({ type: 'spin', playerAttached: true, radius: p.stats.attackRange, life: 0.3, maxLife: 0.3, color: p.color, angle: Math.random() * Math.PI*2 });
+                    state.particles.push({ type: 'spin', playerAttached: true, radius: p.stats.attackRange, life: 0.3, maxLife: 0.3, color: p.color, angle: seededRandom() * Math.PI*2 });
                     p.lastAttackTime = now;
                 }
             }
@@ -1259,7 +1406,7 @@
                 if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
                     let targets = [];
                     for (let e of state.enemies) if (MathHelper.dist(p, e) <= p.stats.attackRange) targets.push(e);
-                    targets.sort(() => 0.5 - Math.random());
+                    targets.sort(() => 0.5 - seededRandom());
                     let count = Math.min(p.stats.projectiles, targets.length);
                     
                     if (targets.length > 0) {
@@ -1304,7 +1451,7 @@
                     if(d < bh.radius * 2) {
                         e.x += (bh.x - e.x) * (bh.pull/1000) * dt;
                         e.y += (bh.y - e.y) * (bh.pull/1000) * dt;
-                        if(d < bh.radius && Math.random() < 0.1) applyDamage(e, bh.damage, '#a855f7');
+                        if(d < bh.radius && seededRandom() < 0.1) applyDamage(e, bh.damage, '#a855f7');
                     }
                 }
                 if(bh.life <= 0) state.blackholes.splice(i, 1);
@@ -1358,14 +1505,14 @@
                             if (proj.effects.poison) { e.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
                             if (proj.effects.burn) { e.burnTimer = 3.0; e.burnStacks = (e.burnStacks||0) + proj.effects.burn; p.runStats.statusEffectsApplied++; }
                             if (proj.explodeRadius > 0) explosion(e.x, e.y, proj.explodeRadius, proj.damage * 0.5);
-                            if (proj.effects.singularity && Math.random() < 0.1) {
+                            if (proj.effects.singularity && seededRandom() < 0.1) {
                                 state.blackholes.push({ x: proj.x, y: proj.y, radius: 40 + proj.effects.singularity*15, pull: 100 + proj.effects.singularity*50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
                             }
 
                             if (proj.bounceLeft > 0) {
                                 if(proj.effects.plasmaBounce) explosion(e.x, e.y, 80, proj.damage, 'rgba(249, 115, 22, 0.5)');
                                 if(proj.effects.arcStorm) {
-                                    let randTarget = state.enemies[Math.floor(Math.random() * state.enemies.length)];
+                                    let randTarget = state.enemies[Math.floor(seededRandom() * state.enemies.length)];
                                     if(randTarget) {
                                         state.particles.push({x: e.x, y: e.y, targetX: randTarget.x, targetY: randTarget.y, life: 0.2, color: '#fde047', isLine: true});
                                         applyDamage(randTarget, proj.damage, '#fde047');
@@ -1392,7 +1539,7 @@
                 let currentSpeed = e.speed;
                 if (state.worldEvent.active === 'BLOOD_MOON') currentSpeed *= 1.5;
                 if (e.freezeTimer > 0) { currentSpeed *= 0.3; e.freezeTimer -= dt; }
-                if (e.bleedTimer > 0) { e.hp -= (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt; e.bleedTimer -= dt; if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:0, vy:-10, life:0.4, color:'#be123c', size:3}); p.runStats.damageDealt += (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt;}
+                if (e.bleedTimer > 0) { e.hp -= (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt; e.bleedTimer -= dt; if(seededRandom()<0.1) state.particles.push({x:e.x, y:e.y, vx:0, vy:-10, life:0.4, color:'#be123c', size:3}); p.runStats.damageDealt += (p.stats.damage * 0.1 * (p.effects.bleed||1)) * dt;}
                 if (e.poisonTimer > 0) { 
                     let poisonDmg = (e.maxHp * 0.02 * (p.effects.poison||1)) * dt;
                     if (p.effects.toxicBlood && e.bleedTimer > 0) poisonDmg *= 2; 
@@ -1400,7 +1547,7 @@
                     e.hp -= poisonDmg; 
                     p.runStats.damageDealt += poisonDmg;
                     e.poisonTimer -= dt; 
-                    if(Math.random()<0.1) state.particles.push({x:e.x, y:e.y, vx:MathHelper.rand(-5,5), vy:-10, life:0.3, color:'#22c55e', size:4}); 
+                    if(seededRandom()<0.1) state.particles.push({x:e.x, y:e.y, vx:MathHelper.rand(-5,5), vy:-10, life:0.3, color:'#22c55e', size:4}); 
                 }
                 
                 e.x += e.vx * dt; e.y += e.vy * dt; e.vx *= 0.9; e.vy *= 0.9; 
@@ -1446,7 +1593,7 @@
                     const angle = MathHelper.angle(e, p);
                     if(e.behavior === 'teleport') {
                         if(e.timer > 3) { e.x = p.x + MathHelper.rand(-400, 400); e.y = p.y + MathHelper.rand(-400, 400); e.timer = 0; explosion(e.x, e.y, 100, 0, 'rgba(255,255,255,0.5)'); }
-                        if(Math.random() < 0.05) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 300, damage: e.damage, attackRange: 1000}, {}, e.color, true);
+                        if(seededRandom() < 0.05) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 300, damage: e.damage, attackRange: 1000}, {}, e.color, true);
                     } else if (e.behavior === 'bullet_hell') {
                         e.x += Math.cos(angle) * currentSpeed * 0.3 * dt; e.y += Math.sin(angle) * currentSpeed * 0.3 * dt;
                         if(e.timer > 0.5) { e.timer = 0; for(let r=0; r<8; r++) createProjectile(e.x, e.y, (Math.PI*2/8)*r + state.gameTime, {projectileSpeed: 200, damage: e.damage, attackRange: 1000}, {}, e.color, true); }
@@ -1508,6 +1655,12 @@
         }
 
         function draw() {
+            if (state.status === 'MENU') {
+                ctx.fillStyle = '#050508'; 
+                ctx.fillRect(0, 0, vw, vh);
+                return;
+            }
+
             const p = state.player;
             if (p.skin === 'blueprint') {
                 ctx.fillStyle = '#0f172a'; // Deep blue
@@ -1515,7 +1668,6 @@
             } else {
                 ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh);
             }
-            if (state.status === 'MENU') return;
 
             ctx.save(); ctx.translate(-state.camera.x, -state.camera.y);
 
@@ -1590,28 +1742,21 @@
                 ctx.shadowBlur = 0;
             }
 
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            
-            if(p.skin === 'cyber') { ctx.shadowBlur = 10; ctx.shadowColor = '#0ff'; ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2; ctx.fillStyle = 'rgba(0, 255, 255, 0.1)'; }
-            if(p.skin === 'cosmic') { ctx.fillStyle = '#0f172a'; ctx.shadowBlur = 15; ctx.shadowColor = '#8b5cf6'; }
-            if(p.skin === 'abyssal') { ctx.fillStyle = '#000'; ctx.strokeStyle = '#7e22ce'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#4c1d95'; }
-            if(p.skin === 'glitch') { if(Math.random()<0.2) ctx.translate(MathHelper.rand(-3,3), MathHelper.rand(-3,3)); }
-
-            if(p.skin === 'cyber' || p.skin === 'wireframe' || p.skin === 'blueprint' || p.skin === 'abyssal') {
-                ctx.strokeStyle = p.skin === 'blueprint' ? '#fff' : (p.skin === 'wireframe' ? p.color : (p.skin === 'abyssal' ? '#7e22ce' : '#f0f')); ctx.lineWidth = 2;
-                ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.stroke();
-            } else {
-                ctx.fillStyle = ctx.fillStyle !== '#000000' && p.skin !== 'default' ? ctx.fillStyle : p.color; 
-                ctx.beginPath(); ctx.arc(0, 0, p.radius, 0, Math.PI * 2); ctx.fill();
+            // Render Remote Players (Ghosts)
+            for (let uid in Party.remotePlayers) {
+                const rp = Party.remotePlayers[uid];
+                const charData = CHARACTERS[rp.charId] || CHARACTERS['bruiser'];
+                ctx.globalAlpha = 0.5; // Make them ghost-like
+                drawPlayerShape(ctx, rp.x, rp.y, 15, rp.skin, charData.color);
+                
+                // Nametag
+                ctx.globalAlpha = 0.8;
+                ctx.font = '10px "JetBrains Mono"'; ctx.fillStyle = '#a855f7'; ctx.textAlign = 'center';
+                ctx.fillText(rp.name, rp.x, rp.y - 25);
+                ctx.globalAlpha = 1.0;
             }
 
-            if (p.skin === 'cosmic') {
-                ctx.fillStyle = '#fff';
-                ctx.fillRect(-6, -4, 2, 2); ctx.fillRect(4, -6, 1.5, 1.5); ctx.fillRect(-2, 5, 2, 2); ctx.fillRect(6, 4, 1, 1);
-            }
-            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, p.radius * 0.4, 0, Math.PI * 2); ctx.fill();
-            ctx.restore();
+            drawPlayerShape(ctx, state.player.x, state.player.y, state.player.radius, state.player.skin, state.player.color);
 
             for(let d of state.drones) { ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : '#cbd5e1'; ctx.beginPath(); MathHelper.drawPoly(ctx, d.x, d.y, 6, 3, state.gameTime*2); p.skin === 'wireframe' ? ctx.stroke() : ctx.fill(); }
             for(let b of state.blades) {
@@ -1657,6 +1802,34 @@
             if (state.worldEvent.active === "BLOOD_MOON") { ctx.fillStyle = 'rgba(220, 38, 38, 0.15)'; ctx.fillRect(0, 0, vw, vh); }
         }
 
+        function drawPlayerShape(ctx, x, y, radius, skin, color) {
+            ctx.save();
+            ctx.translate(x, y);
+            
+            if(skin === 'cyber') { ctx.shadowBlur = 10; ctx.shadowColor = '#0ff'; ctx.strokeStyle = '#f0f'; ctx.lineWidth = 2; ctx.fillStyle = 'rgba(0, 255, 255, 0.1)'; }
+            if(skin === 'cosmic') { ctx.fillStyle = '#0f172a'; ctx.shadowBlur = 15; ctx.shadowColor = '#8b5cf6'; }
+            if(skin === 'abyssal') { ctx.fillStyle = '#000'; ctx.strokeStyle = '#7e22ce'; ctx.lineWidth = 3; ctx.shadowBlur = 20; ctx.shadowColor = '#4c1d95'; }
+            if(skin === 'glitch') { if(Math.random()<0.2) ctx.translate(MathHelper.rand(-3,3), MathHelper.rand(-3,3)); }
+            if(skin === 'blueprint') { ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.fillStyle = 'transparent'; }
+            if(skin === 'wireframe') { ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.fillStyle = 'transparent'; }
+
+            if(skin === 'cyber' || skin === 'wireframe' || skin === 'blueprint' || skin === 'abyssal') {
+                ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.stroke();
+                if(skin === 'cyber' || skin === 'abyssal') ctx.fill();
+            } else {
+                ctx.fillStyle = color; 
+                ctx.beginPath(); ctx.arc(0, 0, radius, 0, Math.PI * 2); ctx.fill();
+            }
+
+            if (skin === 'cosmic') {
+                ctx.fillStyle = '#fff';
+                ctx.fillRect(-6, -4, 2, 2); ctx.fillRect(4, -6, 1.5, 1.5); ctx.fillRect(-2, 5, 2, 2); ctx.fillRect(6, 4, 1, 1);
+            }
+
+            ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, radius * 0.4, 0, Math.PI * 2); ctx.fill();
+            ctx.restore();
+        }
+
         function gameOver() {
             state.status = 'GAMEOVER'; UI.hud.classList.add('hidden'); UI.tracker.classList.add('hidden'); UI.gameover.classList.remove('hidden');
             const p = state.player;
@@ -1678,102 +1851,77 @@
             
             document.getElementById('go-build-name').innerText = generateBuildName(p);
 
-            // Calculate and award meta shards safely
             const bossKillsValid = isNaN(p.runStats.bossKills) ? 0 : p.runStats.bossKills;
             const earnedShards = Math.floor(p.progression.kills / 10) + (bossKillsValid * 50) + (Math.floor(state.gameTime / 60) * 10);
             document.getElementById('go-shards').innerText = `+${earnedShards}`;
-            
             SaveSystem.awardShards(earnedShards);
             
-            // Save cumulative stats
             SaveSystem.data.stats.totalKills += p.progression.kills;
             SaveSystem.data.stats.runsPlayed++;
             SaveSystem.data.stats.bossesDefeated += bossKillsValid;
             SaveSystem.data.stats.totalDamage += p.runStats.damageDealt;
-            SaveSystem.save(); // Local + Cloud Trigger
+            SaveSystem.save();
+
+            if (Party.id) {
+                Party.leave(); // Disconnect from party on death
+                showSysMsg("DISCONNECTED FROM PARTY", "text-yellow-400", "bg-yellow-500/10");
+            }
         }
 
-        function startGame() {
+        function startGame(seed) {
             const selectedChar = document.querySelector('.char-card.selected');
             const selectedSkin = document.querySelector('.skin-btn.selected');
-            
-            // Security check to prevent starting with locked items by HTML manipulation
             const charId = selectedChar.getAttribute('data-char');
             const skinId = selectedSkin.getAttribute('data-skin');
             
             if(!SaveSystem.data.unlockedChars.includes(charId) || !SaveSystem.data.unlockedSkins.includes(skinId)) return;
 
-            state.reset(charId, skinId);
+            state.reset(charId, skinId, seed);
             state.status = 'PLAYING';
-            UI.menu.classList.add('hidden'); UI.gameover.classList.add('hidden'); UI.hud.classList.remove('hidden'); UI.hud.classList.add('flex');
-            updateHUD(); updateTrackerUI();
+            document.getElementById('screen-menu').classList.add('hidden'); document.getElementById('screen-gameover').classList.add('hidden'); 
+            document.getElementById('screen-hud').classList.remove('hidden'); document.getElementById('screen-hud').classList.add('flex');
+            
+            updateHUD();
+            updateTrackerUI();
+            
+            if (Party.id) {
+                Party.startSyncing();
+            }
         }
 
-        // Initialize Systems on load
-        SaveSystem.init();
-
-        // Auth Logic bindings
-        UI.btnCloseAuth.addEventListener('click', () => UI.modalAuth.classList.add('hidden'));
-        UI.btnLogin.addEventListener('click', () => {
-            const email = UI.authEmail.value; const pass = UI.authPass.value;
-            if(email && pass) CloudSync.login(email, pass);
-        });
-        UI.btnRegister.addEventListener('click', () => {
-            const email = UI.authEmail.value; const pass = UI.authPass.value;
-            if(email && pass) CloudSync.register(email, pass);
-        });
-
-        // Menu UI Event Listeners for Locking/Unlocking
-        UI.charCards.forEach(card => { 
+        // Init Bindings
+        document.querySelectorAll('.char-card').forEach(card => { 
             card.addEventListener('click', () => { 
-                const id = card.getAttribute('data-char');
-                const cost = parseInt(card.getAttribute('data-cost'));
-                
+                const id = card.getAttribute('data-char'); const cost = parseInt(card.getAttribute('data-cost'));
                 if (SaveSystem.data.unlockedChars.includes(id)) {
-                    // It's unlocked, just select it
-                    UI.charCards.forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
+                    document.querySelectorAll('.char-card').forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
                     card.classList.add('selected'); 
-                } else {
-                    // Try to unlock
-                    if(SaveSystem.unlockClass(id, cost)) {
-                        UI.charCards.forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
-                        card.classList.add('selected'); 
-                    } else {
-                        card.classList.add('shake');
-                        setTimeout(() => card.classList.remove('shake'), 300);
-                    }
-                }
+                } else if(SaveSystem.unlock('char', id, cost)) {
+                    document.querySelectorAll('.char-card').forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
+                    card.classList.add('selected'); 
+                } else { card.classList.add('shake'); setTimeout(() => card.classList.remove('shake'), 300); }
             }); 
         });
 
-        UI.skinBtns.forEach(btn => { 
+        document.querySelectorAll('.skin-btn').forEach(btn => { 
             btn.addEventListener('click', () => { 
-                const id = btn.getAttribute('data-skin');
-                const cost = parseInt(btn.getAttribute('data-cost'));
-
+                const id = btn.getAttribute('data-skin'); const cost = parseInt(btn.getAttribute('data-cost'));
                 if (SaveSystem.data.unlockedSkins.includes(id)) {
-                    UI.skinBtns.forEach(b => { if(!b.classList.contains('locked-item')) b.classList.remove('selected')}); 
+                    document.querySelectorAll('.skin-btn').forEach(b => { if(!b.classList.contains('locked-item')) b.classList.remove('selected')}); 
+                    btn.classList.add('selected'); 
+                } else if(SaveSystem.unlock('skin', id, cost)) {
+                    document.querySelectorAll('.skin-btn').forEach(b => { if(!b.classList.contains('locked-item')) b.classList.remove('selected')}); 
                     btn.classList.add('selected'); 
                 } else {
-                    const msg = document.getElementById('skin-msg');
-                    if(SaveSystem.unlockSkin(id, cost)) {
-                        UI.skinBtns.forEach(b => { if(!b.classList.contains('locked-item')) b.classList.remove('selected')}); 
-                        btn.classList.add('selected'); 
-                    } else {
-                        btn.classList.add('shake');
-                        msg.classList.remove('opacity-0');
-                        setTimeout(() => { btn.classList.remove('shake'); msg.classList.add('opacity-0'); }, 1000);
-                    }
+                    btn.classList.add('shake'); document.getElementById('skin-msg').classList.remove('opacity-0');
+                    setTimeout(() => { btn.classList.remove('shake'); document.getElementById('skin-msg').classList.add('opacity-0'); }, 1000);
                 }
             }); 
         });
 
-        UI.btnShowLog.addEventListener('click', () => { UI.modalUpdateLog.classList.remove('hidden'); });
-        UI.btnCloseLog.addEventListener('click', () => { UI.modalUpdateLog.classList.add('hidden'); });
-        UI.menu.querySelector('#btn-start').addEventListener('click', startGame);
-        UI.gameover.querySelector('#btn-restart').addEventListener('click', startGame);
-        UI.gameover.querySelector('#btn-mainmenu').addEventListener('click', () => {
-            UI.gameover.classList.add('hidden'); UI.menu.classList.remove('hidden'); state.status = 'MENU';
+        document.getElementById('btn-start').addEventListener('click', () => startGame());
+        document.getElementById('btn-mainmenu').addEventListener('click', () => {
+            document.getElementById('screen-gameover').classList.add('hidden'); document.getElementById('screen-menu').classList.remove('hidden'); state.status = 'MENU';
             ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh); 
         });
 
@@ -1786,6 +1934,9 @@
             processInputs(); updateEngine(dt); draw();
             requestAnimationFrame(loop);
         }
+        
+        // Boot Sequence
+        SaveSystem.init();
         requestAnimationFrame(loop);
     </script>
 </body>
