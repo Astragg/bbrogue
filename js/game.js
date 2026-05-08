@@ -1,5 +1,5 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 import { CHARACTERS } from './config/characters.js';
@@ -127,8 +127,28 @@ import { createUpgradesDb } from './config/upgrades.js';
             warden: { name: 'Barrier Pulse', desc: 'Pulse attacks restore shield and harden defenses.', apply: p => { p.effects.maxShield = (p.effects.maxShield || 0) + 60; p.stats.armor += 4; } },
             gambler: { name: 'Chamber Roulette', desc: 'Color-coded chamber ring with forced reload loops.', apply: p => {} },
             necrosmith: { name: 'Soul Forge', desc: 'Elite kills forge temporary husk minions.', apply: p => { p.effects.necroForge = 1; } },
-            voltdancer: { name: 'Kinetic Arc', desc: 'Moving and dashing chains lightning across packs.', apply: p => { p.effects.voltDash = (p.effects.voltDash || 1) + 1; p.stats.speed *= 1.08; } },
+            voltdancer: { name: 'Kinetic Arc', desc: 'Dashing into an enemy strikes for 240% damage and chains to up to 3 nearby targets. Movement also arcs lightning.', apply: p => { p.effects.voltDash = (p.effects.voltDash || 1) + 1; p.stats.speed *= 1.08; } },
             voidwalker: { name: 'Void Drift', desc: 'Beam pressure with mobility-biased scaling.', apply: p => { p.stats.speed *= 1.1; p.stats.damage *= 1.1; } }
+        };
+        const CLASS_ULTIMATES = {
+            default: { id: 'overclock', name: 'Overclock', cooldown: 95, duration: 12, desc: '+35% damage and +25% fire rate.' },
+            ronin: { id: 'crimson_cyclone', name: 'Crimson Cyclone', cooldown: 95, duration: 10, desc: 'Massive spin range and 2x damage.' },
+            lancer: { id: 'impaler_rush', name: 'Impaler Rush', cooldown: 95, duration: 10, desc: 'Dash-lancer frenzy with huge thrust speed and damage.' },
+            paladin: { id: 'sanctuary_vow', name: 'Sanctuary Vow', cooldown: 110, duration: 12, desc: 'Converts into a tank fortress with giant shield pulse.' },
+            bruiser: { id: 'breach_mode', name: 'Breach Mode', cooldown: 95, duration: 12, desc: 'Shotgun breach mode with more pellets and close-range burst.' },
+            sniper: { id: 'deadeye_window', name: 'Deadeye Window', cooldown: 105, duration: 8, desc: 'Guaranteed crit window with amplified crit damage.' },
+            bomber: { id: 'cataclysm_payload', name: 'Cataclysm Payload', cooldown: 105, duration: 10, desc: 'Bigger blasts, extra shells, and carpet-burn zones.' },
+            seeker: { id: 'swarm_overdrive', name: 'Swarm Overdrive', cooldown: 90, duration: 12, desc: 'Hyper-homing swarm with faster multi-shot pursuit.' },
+            ranger: { id: 'suppression_storm', name: 'Suppression Storm', cooldown: 90, duration: 11, desc: 'Full auto suppression with speed and pierce boost.' },
+            channeler: { id: 'prism_lance', name: 'Prism Lance', cooldown: 100, duration: 10, desc: 'Beam overcharge with extra range and sustained beam power.' },
+            trapper: { id: 'orbital_lockdown', name: 'Orbital Lockdown', cooldown: 100, duration: 10, desc: 'Rapid orbital saturation with larger strike zones.' },
+            architect: { id: 'swarm_overclock', name: 'Swarm Overclock', cooldown: 110, duration: 15, desc: 'Temporarily deploys extra attack drones and boost protocols.' },
+            alchemist: { id: 'catalyst_overflow', name: 'Catalyst Overflow', cooldown: 95, duration: 12, desc: 'Status reactor overflow that intensifies all elements.' },
+            voidwalker: { id: 'void_surge', name: 'Void Surge', cooldown: 100, duration: 12, desc: 'Void hyperstate with faster beam pressure and sustain.' },
+            warden: { id: 'aegis_protocol', name: 'Aegis Protocol', cooldown: 110, duration: 12, desc: 'Massive defensive protocol with armor, regen, and shield.' },
+            gambler: { id: 'loaded_hell', name: 'Loaded Hell', cooldown: 105, duration: 30, desc: 'Chamber lock: red rounds only for the whole window.' },
+            necrosmith: { id: 'grave_legion', name: 'Grave Legion', cooldown: 105, duration: 14, desc: 'Undead legion surge empowers husks into elite killers.' },
+            voltdancer: { id: 'storm_drive', name: 'Storm Drive', cooldown: 90, duration: 12, desc: 'Dash-strike overdrive with wider and stronger chain lightning.' }
         };
         const ADMIN_KEY = 'bob123';
         const UISounds = {
@@ -190,6 +210,23 @@ import { createUpgradesDb } from './config/upgrades.js';
         // --- SAVE SYSTEM ---
         const SaveSystem = {
             data: { shards: 0, unlockedChars: ['ronin', 'lancer', 'bruiser', 'sniper', 'bomber', 'seeker'], unlockedSkins: ['default'], unlockedArtifacts: ['none'], selectedArtifact: 'none', starterSlotUnlocked: false, selectedStarterModule: 'none', stats: { totalKills: 0, runsPlayed: 0, bossesDefeated: 0, totalDamage: 0, objectivesCompleted: 0 } },
+            setAuthBadge(mode, user = null) {
+                const dot = document.getElementById('sys-auth-dot');
+                const text = document.getElementById('sys-auth-text');
+                if (!dot || !text) return;
+                dot.classList.remove('bg-emerald-500', 'bg-amber-400', 'bg-rose-500', 'animate-pulse');
+                if (mode === 'cloud') {
+                    dot.classList.add('bg-emerald-500');
+                    const label = user?.email ? user.email.split('@')[0].slice(0, 10) : 'ACCOUNT';
+                    text.innerText = `SYNC: ${label.toUpperCase()}`;
+                } else if (mode === 'local') {
+                    dot.classList.add('bg-amber-400');
+                    text.innerText = "LOCAL MODE";
+                } else {
+                    dot.classList.add('bg-rose-500', 'animate-pulse');
+                    text.innerText = "SIGNED OUT";
+                }
+            },
             async init() {
                 // Initialize Local Storage First
                 try {
@@ -208,27 +245,35 @@ import { createUpgradesDb } from './config/upgrades.js';
 
                 this.updateMenuUI();
 
-                if (isOfflineMode) {
-                    const dot = document.getElementById('sys-auth-dot'); const text = document.getElementById('sys-auth-text');
-                    dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
-                    text.innerText = "LOCAL MODE";
-                    return;
-                }
-
-                try { await signInAnonymously(auth); } catch(e) { console.warn("Auth failed", e); isOfflineMode = true; return; }
+                if (isOfflineMode) { this.setAuthBadge('local'); return; }
 
                 onAuthStateChanged(auth, async (user) => {
                     currentUser = user;
-                    const dot = document.getElementById('sys-auth-dot'); const text = document.getElementById('sys-auth-text');
                     if (user) {
-                        dot.classList.remove('bg-rose-500', 'animate-pulse'); dot.classList.add('bg-emerald-500');
-                        text.innerText = "CLOUD SYNCED";
+                        this.setAuthBadge('cloud', user);
                         await this.loadCloud();
                     } else {
-                        dot.classList.remove('bg-emerald-500'); dot.classList.add('bg-rose-500', 'animate-pulse');
-                        text.innerText = "OFFLINE";
+                        this.setAuthBadge('signedout');
                     }
                 });
+            },
+            async loginWithGoogle() {
+                if (isOfflineMode) throw new Error('Offline mode cannot sign in.');
+                const provider = new GoogleAuthProvider();
+                provider.setCustomParameters({ prompt: 'select_account' });
+                try {
+                    await signInWithPopup(auth, provider);
+                    showSysMsg("SIGNED IN WITH GOOGLE", "text-sky-300", "bg-sky-500/10 border-sky-500/20");
+                } catch (e) {
+                    if (e?.code === 'auth/popup-closed-by-user') throw new Error('Google sign-in popup was closed.');
+                    if (e?.code === 'auth/popup-blocked') throw new Error('Popup blocked. Allow popups and retry.');
+                    throw e;
+                }
+            },
+            async logout() {
+                if (isOfflineMode) return;
+                await signOut(auth);
+                showSysMsg("SIGNED OUT", "text-amber-300", "bg-amber-500/10 border-amber-500/20");
             },
             saveLocal() {
                 try { localStorage.setItem('bots_save_v6', JSON.stringify(this.data)); } catch(e){}
@@ -362,6 +407,7 @@ import { createUpgradesDb } from './config/upgrades.js';
             remotePlayers: {}, // { uid: { x, y, hp, maxHp, charId, skin, name, targetX, targetY, lastUpdate } }
             peer: null, connections: {},
             fallbackInterval: null, useFallback: false,
+            lastCloudSyncAt: 0,
 
             generateCode() {
                 const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -488,8 +534,8 @@ import { createUpgradesDb } from './config/upgrades.js';
                         startGame(this.data.seed);
                     }
 
-                    // Handle Cloud Fallback Data (if WebRTC fails)
-                    if (state.status === 'PLAYING' && this.useFallback && this.data.live_coords) {
+                    // Always consume cloud live coords as a resilient backup for rendering peers
+                    if (state.status === 'PLAYING' && this.data.live_coords) {
                         for(let uid in this.data.live_coords) {
                             if (uid !== currentUser.uid && this.data.players[uid]) {
                                 this.updateRemotePlayer(uid, this.data.players[uid], this.data.live_coords[uid]);
@@ -502,9 +548,25 @@ import { createUpgradesDb } from './config/upgrades.js';
             },
 
             handleNetworkData(peerId, data) {
-                // Determine UID from peerId (Host is code, clients are code_uid)
-                let uid = peerId === this.id ? this.data.host : peerId.split('_')[1];
-                if (uid && this.data && this.data.players[uid]) {
+                if (!this.data || !this.data.players || !data) return;
+
+                // Prefer explicit UID from payload. This is required for host-relayed packets,
+                // where peerId is always the host code and cannot identify the original sender.
+                let uid = (typeof data.uid === 'string' && this.data.players[data.uid]) ? data.uid : null;
+
+                // Fallback: infer from peerId for direct host<->client link packets.
+                if (!uid) {
+                    if (peerId === this.id) {
+                        uid = this.data.host;
+                    } else {
+                        const short = (peerId.split('_')[1] || '').toLowerCase();
+                        if (short) {
+                            uid = Object.keys(this.data.players).find(k => k.toLowerCase().startsWith(short)) || null;
+                        }
+                    }
+                }
+
+                if (uid && this.data.players[uid]) {
                     this.updateRemotePlayer(uid, this.data.players[uid], data);
                 }
                 
@@ -518,10 +580,21 @@ import { createUpgradesDb } from './config/upgrades.js';
 
             updateRemotePlayer(uid, staticData, liveData) {
                 if (!this.remotePlayers[uid]) {
-                    this.remotePlayers[uid] = { ...staticData, x: liveData.x, y: liveData.y, targetX: liveData.x, targetY: liveData.y, hp: liveData.hp, maxHp: liveData.maxHp, xpPoints: liveData.xpPoints || 0 };
+                    this.remotePlayers[uid] = {
+                        ...staticData,
+                        x: liveData.x, y: liveData.y,
+                        targetX: liveData.x, targetY: liveData.y,
+                        hp: liveData.hp, maxHp: liveData.maxHp,
+                        xpPoints: liveData.xpPoints || 0,
+                        dashActive: !!liveData.dashActive,
+                        ultActive: !!liveData.ultActive,
+                        lastUpdate: state.gameTime
+                    };
                 } else {
                     const rp = this.remotePlayers[uid];
                     rp.targetX = liveData.x; rp.targetY = liveData.y; rp.hp = liveData.hp; rp.maxHp = liveData.maxHp; rp.xpPoints = liveData.xpPoints || rp.xpPoints || 0;
+                    rp.dashActive = !!liveData.dashActive;
+                    rp.ultActive = !!liveData.ultActive;
                     rp.lastUpdate = state.gameTime;
                 }
                 if (state.status === 'PLAYING') this.syncSharedXpRealtime();
@@ -547,14 +620,21 @@ import { createUpgradesDb } from './config/upgrades.js';
                         hp: Math.floor(state.player.stats.hp),
                         maxHp: Math.floor(state.player.stats.maxHp),
                         xpPoints: progressionToPoints(state.player.progression),
-                        uid: currentUser.uid
+                        uid: currentUser.uid,
+                        dashActive: state.player.dashActive > 0 ? 1 : 0,
+                        ultActive: state.player.ultimate && state.player.ultimate.activeTimer > 0 ? 1 : 0
                     };
                     
                     if (!this.useFallback && Object.keys(this.connections).length > 0) {
                         // Blast WebRTC
                         for(let c in this.connections) this.connections[c].send(payload);
-                    } else if (this.useFallback) {
-                        // Slow Cloud Polling
+                    }
+
+                    // Also push periodic cloud coords for robust visibility (works even if P2P is flaky)
+                    const nowMs = performance.now();
+                    const cloudCadenceMs = 50;
+                    if (nowMs - this.lastCloudSyncAt >= cloudCadenceMs) {
+                        this.lastCloudSyncAt = nowMs;
                         try { await updateDoc(this.getDocRef(this.id), { [`live_coords.${currentUser.uid}`]: payload }); } catch(e) {}
                     }
                 }, tickRate);
@@ -613,6 +693,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                 if (this.fallbackInterval) clearInterval(this.fallbackInterval);
                 if (this.peer) this.peer.destroy();
                 this.id = null; this.isHost = false; this.data = null; this.remotePlayers = {}; this.connections = {}; this.useFallback = false;
+                this.lastCloudSyncAt = 0;
                 
                 document.getElementById('party-view-select').classList.remove('hidden');
                 document.getElementById('party-view-lobby').classList.add('hidden');
@@ -649,6 +730,14 @@ import { createUpgradesDb } from './config/upgrades.js';
             xpFill: document.getElementById('hud-xp-fill'), hpFill: document.getElementById('hud-hp-fill'),
             shieldContainer: document.getElementById('hud-shield-container'), shieldFill: document.getElementById('hud-shield-fill'), 
             dashFill: document.getElementById('hud-dash-fill'),
+            ultFill: document.getElementById('hud-ult-fill'),
+            ultNameText: document.getElementById('hud-ult-name'),
+            mobileControls: document.getElementById('mobile-controls'),
+            mobileJoystick: document.getElementById('mobile-joystick'),
+            mobileJoystickStick: document.getElementById('mobile-joystick-stick'),
+            mobileDashBtn: document.getElementById('btn-mobile-dash'),
+            mobileUltBtn: document.getElementById('btn-mobile-ult'),
+            mobileModulesBtn: document.getElementById('btn-mobile-modules'),
             levelText: document.getElementById('hud-level'), timeText: document.getElementById('hud-time'), 
             killsText: document.getElementById('hud-kills'), comboText: document.getElementById('hud-combo'), 
             layerText: document.getElementById('hud-layer'), objectiveText: document.getElementById('hud-objective'),
@@ -706,7 +795,8 @@ import { createUpgradesDb } from './config/upgrades.js';
                     lastAttackTime: 0, combo: 1.0, comboTimer: 0,
                     dashActive: 0, dashCooldownTimer: 0, shield: 0, beamTarget: null, shieldRechargeTimer: 0,
                     runStats: { damageDealt: 0, damageTaken: 0, healingReceived: 0, projectilesFired: 0, critsLanded: 0, statusEffectsApplied: 0, dodgesTriggered: 0, highestDps: 0, currentSecDmg: 0, lastSecTime: 0, synergiesActivated: 0, bossKills: 0 },
-                    gambler: null
+                    gambler: null,
+                    ultimate: null
                 };
                 
                 if(charId === 'architect') {
@@ -726,6 +816,16 @@ import { createUpgradesDb } from './config/upgrades.js';
                         chambers: rollGamblerChambers(6)
                     };
                 }
+                const ultCfg = CLASS_ULTIMATES[charId] || CLASS_ULTIMATES.default;
+                this.player.ultimate = {
+                    id: ultCfg.id,
+                    name: ultCfg.name,
+                    cooldown: ultCfg.cooldown,
+                    duration: ultCfg.duration,
+                    cooldownTimer: 0,
+                    activeTimer: 0,
+                    meta: {}
+                };
                 this.player.stats.hp = this.player.stats.maxHp;
 
                 this.enemies = []; this.projectiles = []; this.gems = []; 
@@ -800,7 +900,16 @@ import { createUpgradesDb } from './config/upgrades.js';
             }
         }
 
-        const keys = { w: false, a: false, s: false, d: false, arrowup: false, arrowleft: false, arrowdown: false, arrowright: false, " ": false };
+        const isTouchDevice = (('ontouchstart' in window) || (navigator.maxTouchPoints > 0));
+        const shouldUseMobileControls = () =>
+            isTouchDevice ||
+            window.matchMedia('(pointer: coarse)').matches ||
+            window.innerWidth <= 900;
+        function updateMobileUiMode() {
+            document.body.classList.toggle('mobile-ui-active', shouldUseMobileControls());
+        }
+        const touchInput = { active: false, dirX: 0, dirY: 0, pointerId: null };
+        const keys = { w: false, a: false, s: false, d: false, arrowup: false, arrowleft: false, arrowdown: false, arrowright: false, " ": false, r: false };
         window.addEventListener('keydown', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = true; });
         window.addEventListener('keyup', e => { if(!e.key) return; const k = e.key.toLowerCase(); if(keys.hasOwnProperty(k)) keys[k] = false; });
         window.addEventListener('keydown', e => {
@@ -811,9 +920,75 @@ import { createUpgradesDb } from './config/upgrades.js';
             }
         });
 
+        function initMobileControls() {
+            if (!UI.mobileJoystick || !UI.mobileJoystickStick) return;
+            const joystick = UI.mobileJoystick;
+            const stick = UI.mobileJoystickStick;
+            const maxRadius = 42;
+            const resetStick = () => {
+                touchInput.active = false;
+                touchInput.dirX = 0;
+                touchInput.dirY = 0;
+                touchInput.pointerId = null;
+                stick.style.transform = 'translate(-50%, -50%)';
+            };
+            const updateStick = (clientX, clientY) => {
+                const rect = joystick.getBoundingClientRect();
+                const cx = rect.left + rect.width / 2;
+                const cy = rect.top + rect.height / 2;
+                let dx = clientX - cx;
+                let dy = clientY - cy;
+                const len = Math.hypot(dx, dy) || 1;
+                const clamped = Math.min(maxRadius, len);
+                const nx = dx / len;
+                const ny = dy / len;
+                touchInput.active = true;
+                touchInput.dirX = nx * (clamped / maxRadius);
+                touchInput.dirY = ny * (clamped / maxRadius);
+                stick.style.transform = `translate(calc(-50% + ${touchInput.dirX * maxRadius}px), calc(-50% + ${touchInput.dirY * maxRadius}px))`;
+            };
+            joystick.addEventListener('pointerdown', (e) => {
+                e.preventDefault();
+                touchInput.pointerId = e.pointerId;
+                joystick.setPointerCapture(e.pointerId);
+                updateStick(e.clientX, e.clientY);
+            });
+            joystick.addEventListener('pointermove', (e) => {
+                if (touchInput.pointerId !== e.pointerId) return;
+                e.preventDefault();
+                updateStick(e.clientX, e.clientY);
+            });
+            joystick.addEventListener('pointerup', (e) => {
+                if (touchInput.pointerId !== e.pointerId) return;
+                e.preventDefault();
+                resetStick();
+            });
+            joystick.addEventListener('pointercancel', resetStick);
+
+            const mobilePress = (el, cb) => {
+                if (!el) return;
+                el.addEventListener('pointerdown', (e) => { e.preventDefault(); cb(); });
+            };
+            mobilePress(UI.mobileDashBtn, () => { keys[" "] = true; });
+            mobilePress(UI.mobileUltBtn, () => { keys.r = true; });
+            mobilePress(UI.mobileModulesBtn, () => {
+                if (state.status !== 'PLAYING') return;
+                const tr = UI.tracker;
+                if(tr.classList.contains('translate-x-full')) { tr.classList.remove('translate-x-full', 'hidden'); updateTrackerUI(); }
+                else { tr.classList.add('translate-x-full'); setTimeout(() => tr.classList.add('hidden'), 500); }
+            });
+        }
+        initMobileControls();
+        updateMobileUiMode();
+        window.addEventListener('resize', updateMobileUiMode);
+
         function clearInputs() {
             for(let k in keys) keys[k] = false;
             commandQueue = [];
+            touchInput.active = false;
+            touchInput.dirX = 0;
+            touchInput.dirY = 0;
+            if (UI.mobileJoystickStick) UI.mobileJoystickStick.style.transform = 'translate(-50%, -50%)';
         }
 
         function processInputs() {
@@ -823,6 +998,10 @@ import { createUpgradesDb } from './config/upgrades.js';
             if (keys.s || keys.arrowdown) dirY += 1;
             if (keys.a || keys.arrowleft) dirX -= 1;
             if (keys.d || keys.arrowright) dirX += 1;
+            if (touchInput.active) {
+                dirX = touchInput.dirX;
+                dirY = touchInput.dirY;
+            }
 
             if (dirX !== 0 && dirY !== 0) { const len = Math.sqrt(dirX*dirX + dirY*dirY); dirX /= len; dirY /= len; }
             if (dirX !== 0 || dirY !== 0) {
@@ -837,6 +1016,241 @@ import { createUpgradesDb } from './config/upgrades.js';
                 commandQueue.push({ type: 'DASH', dirX: dashX, dirY: dashY }); 
                 keys[" "] = false; 
             }
+            if (keys.r && state.player.ultimate && state.player.ultimate.cooldownTimer <= 0 && state.player.ultimate.activeTimer <= 0) {
+                commandQueue.push({ type: 'ULTIMATE' });
+                keys.r = false;
+            }
+        }
+
+        function deactivateUltimate() {
+            const p = state.player;
+            if (!p?.ultimate) return;
+            const meta = p.ultimate.meta || {};
+            switch (p.charId) {
+                case 'ronin':
+                    if (meta.damageMult) p.stats.damage /= meta.damageMult;
+                    if (meta.rangeMult) p.stats.attackRange /= meta.rangeMult;
+                    break;
+                case 'lancer':
+                    if (meta.damageMult) p.stats.damage /= meta.damageMult;
+                    if (meta.speedMult) p.stats.speed /= meta.speedMult;
+                    if (meta.projSpeedMult) p.stats.projectileSpeed /= meta.projSpeedMult;
+                    if (meta.dashCdMult) p.stats.dashCooldown /= meta.dashCdMult;
+                    break;
+                case 'paladin':
+                    if (meta.rangeMult) p.stats.attackRange /= meta.rangeMult;
+                    if (meta.regenAdd) p.stats.regen -= meta.regenAdd;
+                    if (meta.armorAdd) p.stats.armor -= meta.armorAdd;
+                    if (meta.maxShieldAdd) p.effects.maxShield = Math.max(0, (p.effects.maxShield || 0) - meta.maxShieldAdd);
+                    p.shield = Math.min(p.shield || 0, p.effects.maxShield || 0);
+                    break;
+                case 'bruiser':
+                    if (meta.projectilesAdd) p.stats.projectiles -= meta.projectilesAdd;
+                    if (meta.spreadMult) p.stats.spread /= meta.spreadMult;
+                    p.effects.ultBruiser = 0;
+                    break;
+                case 'sniper':
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    if (meta.critMultAdd) p.stats.critMult -= meta.critMultAdd;
+                    if (typeof meta.prevCritChance === 'number') p.stats.critChance = meta.prevCritChance;
+                    break;
+                case 'bomber':
+                    if (meta.explodeAdd) p.stats.explodeRadius = Math.max(0, p.stats.explodeRadius - meta.explodeAdd);
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    if (meta.projAdd) p.stats.projectiles -= meta.projAdd;
+                    if (typeof meta.prevCarpetBomb === 'boolean') p.effects.carpetBomb = meta.prevCarpetBomb;
+                    break;
+                case 'seeker':
+                    if (meta.homingAdd) p.stats.homing -= meta.homingAdd;
+                    if (meta.projectilesAdd) p.stats.projectiles -= meta.projectilesAdd;
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    break;
+                case 'ranger':
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    if (meta.speedMult) p.stats.speed /= meta.speedMult;
+                    if (meta.pierceAdd) p.stats.pierce -= meta.pierceAdd;
+                    break;
+                case 'channeler':
+                    if (meta.damageMult) p.stats.damage /= meta.damageMult;
+                    if (meta.rangeMult) p.stats.attackRange /= meta.rangeMult;
+                    p.effects.ultBeamBoost = 0;
+                    break;
+                case 'trapper':
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    if (meta.rangeMult) p.stats.attackRange /= meta.rangeMult;
+                    if (meta.explodeAdd) p.stats.explodeRadius = Math.max(0, p.stats.explodeRadius - meta.explodeAdd);
+                    if (meta.projectilesAdd) p.stats.projectiles -= meta.projectilesAdd;
+                    break;
+                case 'voltdancer':
+                    if (meta.dashCdMult) p.stats.dashCooldown /= meta.dashCdMult;
+                    break;
+                case 'architect':
+                    if (meta.attackDroneBonus) p.summons.attackDrones = Math.max(0, (p.summons.attackDrones || 0) - meta.attackDroneBonus);
+                    if (meta.attackDroneBoostMult) p.effects.attackDroneBoost = (p.effects.attackDroneBoost || 1) / meta.attackDroneBoostMult;
+                    if (meta.harvestBoostAdd) p.effects.harvestBoost = Math.max(1.2, (p.effects.harvestBoost || 1.2) - meta.harvestBoostAdd);
+                    syncSummons();
+                    break;
+                case 'alchemist':
+                    if (meta.poisonAdd) p.effects.poison = Math.max(0, (p.effects.poison || 0) - meta.poisonAdd);
+                    if (meta.burnAdd) p.effects.burn = Math.max(0, (p.effects.burn || 0) - meta.burnAdd);
+                    if (meta.freezeAdd) p.effects.freeze = Math.max(0, (p.effects.freeze || 0) - meta.freezeAdd);
+                    if (typeof meta.prevVolatileMix === 'boolean') p.effects.volatileMix = meta.prevVolatileMix;
+                    break;
+                case 'voidwalker':
+                    if (meta.damageMult) p.stats.damage /= meta.damageMult;
+                    if (meta.speedMult) p.stats.speed /= meta.speedMult;
+                    if (meta.lifestealAdd) p.stats.lifesteal -= meta.lifestealAdd;
+                    break;
+                case 'warden':
+                    if (meta.armorAdd) p.stats.armor -= meta.armorAdd;
+                    if (meta.regenAdd) p.stats.regen -= meta.regenAdd;
+                    if (meta.maxShieldAdd) p.effects.maxShield = Math.max(0, (p.effects.maxShield || 0) - meta.maxShieldAdd);
+                    p.shield = Math.min(p.shield || 0, p.effects.maxShield || 0);
+                    break;
+                case 'necrosmith':
+                    if (meta.huskDmgMult) p.effects.necroHuskDmg = (p.effects.necroHuskDmg || 1) / meta.huskDmgMult;
+                    if (meta.huskLifeMult) p.effects.necroHuskLife = (p.effects.necroHuskLife || 1) / meta.huskLifeMult;
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    break;
+                default:
+                    if (meta.damageMult) p.stats.damage /= meta.damageMult;
+                    if (meta.fireRateMult) p.stats.fireRate /= meta.fireRateMult;
+                    break;
+            }
+            p.effects.ultGamblerRed = 0;
+            p.effects.ultVoltDash = 0;
+            p.effects.ultBruiser = 0;
+            p.effects.ultBeamBoost = 0;
+            p.ultimate.meta = {};
+        }
+
+        function activateUltimate() {
+            const p = state.player;
+            if (!p?.ultimate || p.ultimate.cooldownTimer > 0 || p.ultimate.activeTimer > 0) return false;
+            p.ultimate.cooldownTimer = p.ultimate.cooldown;
+            p.ultimate.activeTimer = p.ultimate.duration;
+            p.ultimate.meta = {};
+            switch (p.charId) {
+                case 'gambler':
+                    if (p.gambler) {
+                        p.effects.ultGamblerRed = 1;
+                        p.gambler.reloading = false;
+                        p.gambler.reloadTimer = 0;
+                        p.gambler.ammo = p.gambler.maxAmmo;
+                        p.gambler.fireCursor = 0;
+                        p.gambler.chambers = Array.from({ length: p.gambler.maxAmmo }, () => 'red');
+                    }
+                    break;
+                case 'ronin':
+                    p.ultimate.meta = { damageMult: 2.0, rangeMult: 1.85 };
+                    p.stats.damage *= p.ultimate.meta.damageMult;
+                    p.stats.attackRange *= p.ultimate.meta.rangeMult;
+                    break;
+                case 'lancer':
+                    p.ultimate.meta = { damageMult: 1.7, speedMult: 1.25, projSpeedMult: 1.4, dashCdMult: 0.6 };
+                    p.stats.damage *= p.ultimate.meta.damageMult;
+                    p.stats.speed *= p.ultimate.meta.speedMult;
+                    p.stats.projectileSpeed *= p.ultimate.meta.projSpeedMult;
+                    p.stats.dashCooldown *= p.ultimate.meta.dashCdMult;
+                    break;
+                case 'paladin':
+                    p.ultimate.meta = { rangeMult: 1.45, regenAdd: 10, armorAdd: 16, maxShieldAdd: 140 };
+                    p.stats.attackRange *= p.ultimate.meta.rangeMult;
+                    p.stats.regen += p.ultimate.meta.regenAdd;
+                    p.stats.armor += p.ultimate.meta.armorAdd;
+                    p.effects.maxShield = (p.effects.maxShield || 0) + p.ultimate.meta.maxShieldAdd;
+                    p.shield = p.effects.maxShield;
+                    break;
+                case 'bruiser':
+                    p.ultimate.meta = { projectilesAdd: 2, spreadMult: 0.75 };
+                    p.stats.projectiles += p.ultimate.meta.projectilesAdd;
+                    p.stats.spread *= p.ultimate.meta.spreadMult;
+                    p.effects.ultBruiser = 1;
+                    break;
+                case 'sniper':
+                    p.ultimate.meta = { fireRateMult: 1.4, critMultAdd: 1.5, prevCritChance: p.stats.critChance };
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    p.stats.critMult += p.ultimate.meta.critMultAdd;
+                    p.stats.critChance = 1;
+                    break;
+                case 'bomber':
+                    p.ultimate.meta = { explodeAdd: 120, fireRateMult: 1.35, projAdd: 1, prevCarpetBomb: !!p.effects.carpetBomb };
+                    p.stats.explodeRadius = (p.stats.explodeRadius || 0) + p.ultimate.meta.explodeAdd;
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    p.stats.projectiles += p.ultimate.meta.projAdd;
+                    p.effects.carpetBomb = true;
+                    break;
+                case 'seeker':
+                    p.ultimate.meta = { homingAdd: 0.35, projectilesAdd: 2, fireRateMult: 1.35 };
+                    p.stats.homing += p.ultimate.meta.homingAdd;
+                    p.stats.projectiles += p.ultimate.meta.projectilesAdd;
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    break;
+                case 'ranger':
+                    p.ultimate.meta = { fireRateMult: 1.6, speedMult: 1.2, pierceAdd: 2 };
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    p.stats.speed *= p.ultimate.meta.speedMult;
+                    p.stats.pierce += p.ultimate.meta.pierceAdd;
+                    break;
+                case 'channeler':
+                    p.ultimate.meta = { damageMult: 1.5, rangeMult: 1.35 };
+                    p.stats.damage *= p.ultimate.meta.damageMult;
+                    p.stats.attackRange *= p.ultimate.meta.rangeMult;
+                    p.effects.ultBeamBoost = 1;
+                    break;
+                case 'trapper':
+                    p.ultimate.meta = { fireRateMult: 1.55, rangeMult: 1.3, explodeAdd: 55, projectilesAdd: 1 };
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    p.stats.attackRange *= p.ultimate.meta.rangeMult;
+                    p.stats.explodeRadius = (p.stats.explodeRadius || 0) + p.ultimate.meta.explodeAdd;
+                    p.stats.projectiles += p.ultimate.meta.projectilesAdd;
+                    break;
+                case 'voltdancer':
+                    p.ultimate.meta = { dashCdMult: 0.45 };
+                    p.effects.ultVoltDash = 1;
+                    p.stats.dashCooldown *= p.ultimate.meta.dashCdMult;
+                    break;
+                case 'architect':
+                    p.ultimate.meta = { attackDroneBonus: 2, attackDroneBoostMult: 1.8, harvestBoostAdd: 0.8 };
+                    p.summons.attackDrones = (p.summons.attackDrones || 0) + p.ultimate.meta.attackDroneBonus;
+                    p.effects.attackDroneBoost = (p.effects.attackDroneBoost || 1) * p.ultimate.meta.attackDroneBoostMult;
+                    p.effects.harvestBoost = (p.effects.harvestBoost || 1.2) + p.ultimate.meta.harvestBoostAdd;
+                    syncSummons();
+                    break;
+                case 'alchemist':
+                    p.ultimate.meta = { poisonAdd: 2, burnAdd: 2, freezeAdd: 2, prevVolatileMix: !!p.effects.volatileMix };
+                    p.effects.poison = (p.effects.poison || 0) + p.ultimate.meta.poisonAdd;
+                    p.effects.burn = (p.effects.burn || 0) + p.ultimate.meta.burnAdd;
+                    p.effects.freeze = (p.effects.freeze || 0) + p.ultimate.meta.freezeAdd;
+                    p.effects.volatileMix = true;
+                    break;
+                case 'voidwalker':
+                    p.ultimate.meta = { damageMult: 1.45, speedMult: 1.2, lifestealAdd: 0.06 };
+                    p.stats.damage *= p.ultimate.meta.damageMult;
+                    p.stats.speed *= p.ultimate.meta.speedMult;
+                    p.stats.lifesteal += p.ultimate.meta.lifestealAdd;
+                    break;
+                case 'warden':
+                    p.ultimate.meta = { armorAdd: 14, regenAdd: 8, maxShieldAdd: 180 };
+                    p.stats.armor += p.ultimate.meta.armorAdd;
+                    p.stats.regen += p.ultimate.meta.regenAdd;
+                    p.effects.maxShield = (p.effects.maxShield || 0) + p.ultimate.meta.maxShieldAdd;
+                    p.shield = p.effects.maxShield;
+                    break;
+                case 'necrosmith':
+                    p.ultimate.meta = { huskDmgMult: 1.9, huskLifeMult: 1.8, fireRateMult: 1.25 };
+                    p.effects.necroHuskDmg = (p.effects.necroHuskDmg || 1) * p.ultimate.meta.huskDmgMult;
+                    p.effects.necroHuskLife = (p.effects.necroHuskLife || 1) * p.ultimate.meta.huskLifeMult;
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    break;
+                default:
+                    p.ultimate.meta = { damageMult: 1.35, fireRateMult: 1.25 };
+                    p.stats.damage *= p.ultimate.meta.damageMult;
+                    p.stats.fireRate *= p.ultimate.meta.fireRateMult;
+                    break;
+            }
+            showSysMsg(`${p.ultimate.name.toUpperCase()} ONLINE`, 'text-fuchsia-300', 'bg-fuchsia-500/10 border-fuchsia-500/25');
+            return true;
         }
 
         function triggerLevelUp() {
@@ -1170,6 +1584,21 @@ import { createUpgradesDb } from './config/upgrades.js';
                 UI.dashFill.style.width = `${dashProgress}%`;
                 UI.dashFill.className = p.dashCooldownTimer <= 0 ? "h-full bg-sky-300 w-full transition-all duration-100 shadow-[0_0_8px_rgba(125,211,252,0.8)]" : "h-full bg-slate-500 w-full transition-all duration-100";
             }
+            if (p.ultimate && UI.ultFill) {
+                const ultProgress = p.ultimate.activeTimer > 0
+                    ? ((p.ultimate.activeTimer / p.ultimate.duration) * 100)
+                    : (p.ultimate.cooldownTimer <= 0 ? 100 : 100 - ((p.ultimate.cooldownTimer / p.ultimate.cooldown) * 100));
+                UI.ultFill.style.width = `${Math.max(0, Math.min(100, ultProgress))}%`;
+                UI.ultFill.className = p.ultimate.activeTimer > 0
+                    ? "h-full bg-fuchsia-300 w-full transition-all duration-100 shadow-[0_0_10px_rgba(232,121,249,0.85)]"
+                    : (p.ultimate.cooldownTimer <= 0
+                        ? "h-full bg-violet-300 w-full transition-all duration-100 shadow-[0_0_8px_rgba(196,181,253,0.7)]"
+                        : "h-full bg-slate-600 w-full transition-all duration-100");
+                if (UI.ultNameText) {
+                    const phase = p.ultimate.activeTimer > 0 ? 'ACTIVE' : (p.ultimate.cooldownTimer <= 0 ? 'READY' : 'CHARGE');
+                    UI.ultNameText.innerText = `${p.ultimate.name} ${phase}`;
+                }
+            }
 
             UI.levelText.innerText = `LVL ${p.progression.level}`;
             UI.killsText.innerText = `${p.progression.kills} KILLS`;
@@ -1180,7 +1609,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                 const progress = obj.metric === 'noDamage' ? Math.floor(Math.max(0, obj.target - obj.timer)) : Math.floor(obj.progress);
                 UI.objectiveText.innerText = `${obj.title}: ${progress}/${obj.target} (${Math.ceil(obj.timer)}s)`;
             } else {
-                UI.objectiveText.innerText = 'OBJECTIVE: STANDBY';
+                UI.objectiveText.innerText = 'STANDBY';
             }
             const m = Math.floor(state.gameTime / 60).toString().padStart(2, '0');
             const s = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
@@ -1323,9 +1752,8 @@ import { createUpgradesDb } from './config/upgrades.js';
 
         function triggerKillProc(e) {
             const p = state.player;
-            if (p.effects.wisp) {
-                explosion(e.x, e.y, 80 + (p.effects.wisp * 20), p.stats.damage * 2.5 * p.effects.wisp, 'rgba(253, 186, 116, 0.5)');
-                state.particles.push({ type: 'vertical_beam', x: e.x, y: e.y, life: 0.4, maxLife: 0.4, color: '#fdba74', radius: 80 });
+            if (p.effects.singularity && seededRandom() < 0.04) {
+                state.blackholes.push({ x: e.x, y: e.y, radius: 40 + p.effects.singularity * 15, pull: 100 + p.effects.singularity * 50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
             }
             if (p.effects.gasoline) {
                 state.hazards.push({ x: e.x, y: e.y, radius: 100 + (p.effects.gasoline * 20), timer: 3.0, damage: 0, isPlayerHazard: true, burnStacks: p.effects.gasoline });
@@ -1454,6 +1882,13 @@ import { createUpgradesDb } from './config/upgrades.js';
             if(p.comboTimer > 0) p.comboTimer -= dtReal; else p.combo = 1.0;
             if(p.dashCooldownTimer > 0) p.dashCooldownTimer -= dtReal;
             if(p.dashActive > 0) p.dashActive -= dtReal;
+            if (p.ultimate) {
+                if (p.ultimate.cooldownTimer > 0) p.ultimate.cooldownTimer -= dtReal;
+                if (p.ultimate.activeTimer > 0) {
+                    p.ultimate.activeTimer -= dtReal;
+                    if (p.ultimate.activeTimer <= 0) deactivateUltimate();
+                }
+            }
             if (p.charId === 'gambler' && p.gambler) {
                 p.gambler.ringSpin += dtReal * 1.6;
                 if (p.gambler.reloading) {
@@ -1462,8 +1897,10 @@ import { createUpgradesDb } from './config/upgrades.js';
                         p.gambler.reloading = false;
                         p.gambler.ammo = p.gambler.maxAmmo;
                         p.gambler.fireCursor = 0;
-                        p.gambler.chambers = rollGamblerChambers(p.gambler.maxAmmo);
-                        if (p.effects.gamblerAces) {
+                        p.gambler.chambers = p.effects.ultGamblerRed
+                            ? Array.from({ length: p.gambler.maxAmmo }, () => 'red')
+                            : rollGamblerChambers(p.gambler.maxAmmo);
+                        if (!p.effects.ultGamblerRed && p.effects.gamblerAces) {
                             p.gambler.chambers[0] = 'red';
                             if (p.gambler.maxAmmo > 1) p.gambler.chambers[1] = 'red';
                         }
@@ -1505,6 +1942,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                 } else if (cmd.type === 'DASH') {
                     p.dashActive = 0.2; p.dashCooldownTimer = p.stats.dashCooldown;
                     p.dashDirX = cmd.dirX; p.dashDirY = cmd.dirY;
+                    p.dashHits = new Set();
                     for (let i = 0; i < 14; i++) {
                         state.particles.push({
                             x: p.x, y: p.y,
@@ -1515,6 +1953,8 @@ import { createUpgradesDb } from './config/upgrades.js';
                     emitSparkBurst(p.x, p.y, '#93c5fd', 12, 250, 2.6, 0.26);
                     if(p.stats.dashExplosion) explosion(p.x, p.y, p.stats.dashExplosion * 50, p.stats.damage * 2, 'rgba(250, 204, 21, 0.5)');
                     movedThisFrame = true;
+                } else if (cmd.type === 'ULTIMATE') {
+                    activateUltimate();
                 }
             }
 
@@ -1533,6 +1973,39 @@ import { createUpgradesDb } from './config/upgrades.js';
                         size: MathHelper.rand(2, 4)
                     });
                 }
+
+                // Volt Dancer: dash-strike with chain lightning (max 3 chain targets)
+                if (p.charId === 'voltdancer') {
+                    if (!p.dashHits) p.dashHits = new Set();
+                    const ultMult = p.effects.ultVoltDash ? 1.35 : 1.0;
+                    const chainRadius = p.effects.ultVoltDash ? 260 : 200;
+                    for (const e of state.enemies) {
+                        if (p.dashHits.has(e)) continue;
+                        if (MathHelper.dist(p, e) < p.radius + e.radius + 6) {
+                            const impactDmg = p.stats.damage * 2.4 * (p.effects.voltDash || 1) * ultMult;
+                            applyDamage(e, impactDmg, '#fde047');
+                            p.dashHits.add(e);
+                            state.floatingTexts.push({ x: e.x, y: e.y - 18, text: 'STRIKE', life: 0.45, color: '#fde047', vy: -28, size: 11 });
+                            emitSparkBurst(e.x, e.y, '#fef08a', 14, 320, 3.0, 0.32);
+                            state.particles.push({ x: p.x, y: p.y, targetX: e.x, targetY: e.y, life: 0.2, color: '#fde047', isLine: true });
+
+                            // Chain to up to 3 closest unhit enemies near the struck enemy
+                            const chain = state.enemies
+                                .filter(c => c !== e && !p.dashHits.has(c) && MathHelper.dist(e, c) < chainRadius)
+                                .sort((a, b) => MathHelper.dist(e, a) - MathHelper.dist(e, b))
+                                .slice(0, 3);
+                            let prev = e;
+                            for (const t of chain) {
+                                applyDamage(t, p.stats.damage * 1.0 * (p.effects.voltDash || 1) * ultMult, '#fde047');
+                                p.dashHits.add(t);
+                                state.particles.push({ x: prev.x, y: prev.y, targetX: t.x, targetY: t.y, life: 0.22, color: '#fde047', isLine: true });
+                                emitSparkBurst(t.x, t.y, '#fde047', 6, 220, 2.4, 0.26);
+                                prev = t;
+                            }
+                        }
+                    }
+                }
+
                 if(p.dashActive <= 0 && p.stats.dashExplosion) explosion(p.x, p.y, p.stats.dashExplosion * 60, p.stats.damage * 3, 'rgba(250, 204, 21, 0.6)');
             }
 
@@ -1818,7 +2291,8 @@ import { createUpgradesDb } from './config/upgrades.js';
                 if (nearest) {
                     p.beamTarget = nearest;
                     const beamMult = p.effects.beamRamp ? (1.0 + Math.min(0.6, (1 - (minDist / Math.max(1, p.stats.attackRange))) * 0.6)) : 1.0;
-                    applyDamage(nearest, p.stats.damage * dt * beamMult, p.color);
+                    const ultBeamMult = p.effects.ultBeamBoost ? 1.3 : 1.0;
+                    applyDamage(nearest, p.stats.damage * dt * beamMult * ultBeamMult, p.color);
                     if(p.stats.lifesteal > 0 && seededRandom()<0.1) {
                         let heal = p.stats.damage * dt * p.stats.lifesteal;
                         p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal);
@@ -1930,7 +2404,9 @@ import { createUpgradesDb } from './config/upgrades.js';
                             for(let i = 0; i < count; i++) {
                                 let offset = count > 1 ? (-spread/2 + (spread / (count - 1)) * i) : 0;
                                 offset += MathHelper.rand(-0.05, 0.05); 
-                                const proximityMult = p.effects.closeRangeBonus ? (MathHelper.dist(p, nearest) < 220 ? 1.35 : 1.0) : 1.0;
+                                const proximityMult = p.effects.closeRangeBonus
+                                    ? (MathHelper.dist(p, nearest) < 220 ? (p.effects.ultBruiser ? 1.85 : 1.35) : 1.0)
+                                    : 1.0;
                                 const shotStats = { ...p.stats, damage: p.stats.damage * dmgMult * proximityMult };
                                 createProjectile(p.x, p.y, angleToTarget + offset, shotStats, p.effects, p.color);
                             }
@@ -2025,9 +2501,6 @@ import { createUpgradesDb } from './config/upgrades.js';
                             if (proj.explodeRadius > 0) {
                                 explosion(e.x, e.y, proj.explodeRadius, proj.damage * (p.effects.carpetBomb ? 1.5 : 0.5));
                                 if (p.effects.carpetBomb) state.hazards.push({ x: e.x, y: e.y, radius: 80, timer: 2.0, damage: 0, isPlayerHazard: true, burnStacks: 2 });
-                            }
-                            if (proj.effects.singularity && seededRandom() < 0.1) {
-                                state.blackholes.push({ x: proj.x, y: proj.y, radius: 40 + proj.effects.singularity*15, pull: 100 + proj.effects.singularity*50, damage: p.stats.damage * 0.2, life: 3.0, maxLife: 3.0 });
                             }
 
                             if (proj.bounceLeft > 0) {
@@ -2135,19 +2608,19 @@ import { createUpgradesDb } from './config/upgrades.js';
                     const bossIntensity = 1 + (state.layer * 0.08);
                     if(e.behavior === 'teleport') {
                         if(e.timer > Math.max(1.4, 3 - state.layer * 0.12)) { e.x = p.x + MathHelper.rand(-400, 400); e.y = p.y + MathHelper.rand(-400, 400); e.timer = 0; explosion(e.x, e.y, 100, 0, 'rgba(255,255,255,0.5)'); }
-                        if(seededRandom() < 0.05 * bossIntensity) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 320 + state.layer * 18, damage: e.damage, attackRange: 1000}, {}, e.color, true);
+                        if(seededRandom() < 0.05 * bossIntensity) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.5, 0.5), {projectileSpeed: 320 + state.layer * 18, damage: e.damage * 0.8, attackRange: 1000}, {}, e.color, true);
                     } else if (e.behavior === 'bullet_hell') {
                         e.x += Math.cos(angle) * currentSpeed * 0.3 * dt; e.y += Math.sin(angle) * currentSpeed * 0.3 * dt;
-                        if(e.timer > Math.max(0.22, 0.5 - state.layer * 0.02)) { e.timer = 0; const bolts = Math.min(18, 8 + state.layer); for(let r=0; r<bolts; r++) createProjectile(e.x, e.y, (Math.PI*2/bolts)*r + state.gameTime, {projectileSpeed: 220 + state.layer * 16, damage: e.damage, attackRange: 1000}, {}, e.color, true); }
+                        if(e.timer > Math.max(0.22, 0.5 - state.layer * 0.02)) { e.timer = 0; const bolts = Math.min(18, 8 + state.layer); for(let r=0; r<bolts; r++) createProjectile(e.x, e.y, (Math.PI*2/bolts)*r + state.gameTime, {projectileSpeed: 220 + state.layer * 16, damage: e.damage * 0.55, attackRange: 1000}, {}, e.color, true); }
                     } else if (e.behavior === 'summoner') {
                         e.x += Math.cos(angle) * currentSpeed * 0.5 * dt; e.y += Math.sin(angle) * currentSpeed * 0.5 * dt;
                         if(e.timer > Math.max(0.9, 2.0 - state.layer * 0.08)) { e.timer = 0; for(let r=0; r<Math.min(8, 3 + Math.floor(state.layer/2)); r++) state.enemies.push({ x: e.x + MathHelper.rand(-50,50), y: e.y + MathHelper.rand(-50,50), radius: 10, sides: 3, color: '#ec4899', hp: 50 * bossIntensity, maxHp: 50 * bossIntensity, speed: 200, damage: 10 * bossIntensity, erratic: true, isBoss: false, vx:0, vy:0, timer:0, xp: 0, isRanged: false }); }
                     } else if (e.behavior === 'pull') {
                         if(MathHelper.dist(e, p) < 600 && p.dashActive <= 0) { p.x += (e.x - p.x)*1.5*dt; p.y += (e.y - p.y)*1.5*dt; }
-                        if(e.timer > Math.max(1.0, 3 - state.layer * 0.1)) { e.timer = 0; for(let r=0; r<Math.min(16, 8 + state.layer); r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.4, 0.4), {projectileSpeed: 320 + state.layer * 12, damage: e.damage*1.5, attackRange: 1000, scale: 2}, {}, e.color, true, 'giant'); }
+                        if(e.timer > Math.max(1.0, 3 - state.layer * 0.1)) { e.timer = 0; for(let r=0; r<Math.min(16, 8 + state.layer); r++) createProjectile(e.x, e.y, angle + MathHelper.rand(-0.4, 0.4), {projectileSpeed: 320 + state.layer * 12, damage: e.damage * 1.1, attackRange: 1000, scale: 2}, {}, e.color, true, 'giant'); }
                     } else if (e.behavior === 'omega') {
                         e.x += Math.cos(angle) * currentSpeed * 0.2 * dt; e.y += Math.sin(angle) * currentSpeed * 0.2 * dt;
-                        if(e.timer > Math.max(0.08, 0.2 - state.layer * 0.01)) { e.timer = 0; createProjectile(e.x, e.y, state.gameTime * 5, {projectileSpeed: 420 + state.layer * 18, damage: e.damage, attackRange: 1500}, {}, e.color, true); }
+                        if(e.timer > Math.max(0.08, 0.2 - state.layer * 0.01)) { e.timer = 0; createProjectile(e.x, e.y, state.gameTime * 5, {projectileSpeed: 420 + state.layer * 18, damage: e.damage * 0.75, attackRange: 1500}, {}, e.color, true); }
                         if(e.hp < e.maxHp * 0.5 && e.phase === 1) { e.phase = 2; state.worldEvent.active = "BLOOD_MOON"; state.worldEvent.timer = 999; }
                     }
                 } else if (e.isElite) {
@@ -2352,8 +2825,70 @@ import { createUpgradesDb } from './config/upgrades.js';
                 const charData = CHARACTERS[rp.charId] || CHARACTERS['bruiser'];
                 
                 // Interpolate draw position towards target
-                rp.x = MathHelper.lerp(rp.x || rp.targetX, rp.targetX, 0.3);
-                rp.y = MathHelper.lerp(rp.y || rp.targetY, rp.targetY, 0.3);
+                const dx = (rp.targetX - (rp.x || rp.targetX));
+                const dy = (rp.targetY - (rp.y || rp.targetY));
+                const dist = Math.hypot(dx, dy);
+                // Big desyncs should snap fast; normal motion should glide
+                if (dist > 300) {
+                    rp.x = rp.targetX;
+                    rp.y = rp.targetY;
+                } else {
+                    rp.x = MathHelper.lerp(rp.x || rp.targetX, rp.targetX, 0.18);
+                    rp.y = MathHelper.lerp(rp.y || rp.targetY, rp.targetY, 0.18);
+                }
+
+                // Remote effect visuals (class signatures + ult/dash cues)
+                if (rp.ultActive) {
+                    ctx.strokeStyle = 'rgba(217, 70, 239, 0.6)';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.arc(rp.x, rp.y, 22 + Math.sin(state.gameTime * 8 + rp.x * 0.01) * 3, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
+                if (rp.dashActive) {
+                    ctx.fillStyle = 'rgba(125, 211, 252, 0.2)';
+                    ctx.beginPath();
+                    ctx.arc(rp.x, rp.y, 18, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                if (rp.charId === 'gambler') {
+                    const rr = 26;
+                    ctx.strokeStyle = 'rgba(251,191,36,0.45)';
+                    ctx.lineWidth = 1.2;
+                    ctx.beginPath();
+                    ctx.arc(rp.x, rp.y, rr, 0, Math.PI * 2);
+                    ctx.stroke();
+                    for (let i = 0; i < 6; i++) {
+                        const a = state.gameTime * 1.6 + (Math.PI * 2 / 6) * i;
+                        ctx.fillStyle = i % 3 === 0 ? '#ef4444' : (i % 2 === 0 ? '#4ade80' : '#f8fafc');
+                        ctx.beginPath();
+                        ctx.arc(rp.x + Math.cos(a) * rr, rp.y + Math.sin(a) * rr, 2.2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                } else if (rp.charId === 'architect') {
+                    for (let i = 0; i < 3; i++) {
+                        const a = state.gameTime * 2 + (Math.PI * 2 / 3) * i;
+                        ctx.fillStyle = 'rgba(148,163,184,0.7)';
+                        ctx.beginPath();
+                        ctx.arc(rp.x + Math.cos(a) * 22, rp.y + Math.sin(a) * 22, 3, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                } else if (rp.charId === 'voltdancer') {
+                    ctx.strokeStyle = 'rgba(253,224,71,0.45)';
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(rp.x - 16, rp.y - 8);
+                    ctx.lineTo(rp.x - 4, rp.y + 6);
+                    ctx.lineTo(rp.x + 8, rp.y - 4);
+                    ctx.lineTo(rp.x + 16, rp.y + 8);
+                    ctx.stroke();
+                } else if (rp.charId === 'channeler' || rp.charId === 'voidwalker') {
+                    ctx.strokeStyle = 'rgba(192,132,252,0.5)';
+                    ctx.lineWidth = 1.2;
+                    ctx.beginPath();
+                    ctx.arc(rp.x, rp.y, 18, 0, Math.PI * 2);
+                    ctx.stroke();
+                }
 
                 ctx.globalAlpha = 0.5; // Make them ghost-like
                 drawPlayerShape(ctx, rp.x, rp.y, 15, rp.skin, charData.color, rp.hp, rp.maxHp);
@@ -2618,6 +3153,7 @@ import { createUpgradesDb } from './config/upgrades.js';
 
         function gameOver() {
             state.status = 'GAMEOVER'; UI.hud.classList.add('hidden'); UI.tracker.classList.add('hidden'); UI.gameover.classList.remove('hidden');
+            if (UI.mobileControls) UI.mobileControls.classList.add('hidden');
             const p = state.player;
             const m = Math.floor(state.gameTime / 60).toString().padStart(2, '0'); const s = Math.floor(state.gameTime % 60).toString().padStart(2, '0');
             
@@ -2679,8 +3215,15 @@ import { createUpgradesDb } from './config/upgrades.js';
             syncSummons();
             playUISound('confirm');
             clearInputs();
+            window.scrollTo(0, 0);
+            if (UI.menu) UI.menu.scrollTop = 0;
             document.getElementById('screen-menu').classList.add('hidden'); document.getElementById('screen-gameover').classList.add('hidden'); 
             document.getElementById('screen-hud').classList.remove('hidden'); document.getElementById('screen-hud').classList.add('flex');
+            if (UI.mobileControls) {
+                if (shouldUseMobileControls()) UI.mobileControls.classList.remove('hidden');
+                else UI.mobileControls.classList.add('hidden');
+            }
+            updateMobileUiMode();
             
             updateHUD();
             updateTrackerUI();
@@ -2736,10 +3279,15 @@ import { createUpgradesDb } from './config/upgrades.js';
         // Init Bindings
         function updateClassQuirkPanel(charId) {
             const quirk = CLASS_QUIRKS[charId] || { name: 'Core Profile', desc: 'No special quirk configured.' };
+            const ult = CLASS_ULTIMATES[charId] || CLASS_ULTIMATES.default;
             const titleEl = document.getElementById('class-quirk-name');
             const descEl = document.getElementById('class-quirk-desc');
+            const ultNameEl = document.getElementById('class-ult-name');
+            const ultDescEl = document.getElementById('class-ult-desc');
             if (titleEl) titleEl.innerText = `${(charId || 'class').toUpperCase()} - ${quirk.name}`;
             if (descEl) descEl.innerText = quirk.desc;
+            if (ultNameEl) ultNameEl.innerText = `${ult.name} (${Math.round(ult.cooldown)}s CD / ${Math.round(ult.duration)}s)`;
+            if (ultDescEl) ultDescEl.innerText = ult.desc;
         }
 
         function setMenuTab(tabName) {
@@ -2797,6 +3345,35 @@ import { createUpgradesDb } from './config/upgrades.js';
         document.getElementById('btn-tab-host-party').addEventListener('click', () => Party.host());
         document.getElementById('btn-tab-join-party').addEventListener('click', () => Party.join(document.getElementById('tab-party-code-input').value));
 
+        // Account Auth UI Bindings
+        const modalAuth = document.getElementById('modal-auth');
+        const authMsg = document.getElementById('auth-msg');
+        const setAuthMsg = (msg, cls = 'text-slate-400') => {
+            authMsg.className = `mt-4 text-[11px] font-mono min-h-[18px] ${cls}`;
+            authMsg.innerText = msg;
+        };
+        document.getElementById('btn-open-auth')?.addEventListener('click', () => {
+            modalAuth.classList.remove('hidden');
+            setAuthMsg(currentUser?.email ? `Signed in as ${currentUser.email}` : 'Use Google sign-in to sync your save.');
+        });
+        document.getElementById('btn-close-auth')?.addEventListener('click', () => modalAuth.classList.add('hidden'));
+        document.getElementById('btn-auth-google')?.addEventListener('click', async () => {
+            try {
+                await SaveSystem.loginWithGoogle();
+                setAuthMsg('Signed in with Google.', 'text-sky-300');
+            } catch (e) {
+                setAuthMsg(e?.message || 'Google sign-in failed.', 'text-rose-400');
+            }
+        });
+        document.getElementById('btn-auth-logout')?.addEventListener('click', async () => {
+            try {
+                await SaveSystem.logout();
+                setAuthMsg('Signed out.', 'text-amber-300');
+            } catch (e) {
+                setAuthMsg(e?.message || 'Sign out failed.', 'text-rose-400');
+            }
+        });
+
         document.getElementById('btn-start').addEventListener('click', () => startGame());
         document.getElementById('btn-cycle-artifact').addEventListener('click', () => SaveSystem.cycleArtifact());
         document.getElementById('btn-cycle-starter')?.addEventListener('click', () => {
@@ -2808,6 +3385,10 @@ import { createUpgradesDb } from './config/upgrades.js';
         refreshRunOptionDescriptions();
         document.getElementById('btn-mainmenu').addEventListener('click', () => {
             document.getElementById('screen-gameover').classList.add('hidden'); document.getElementById('screen-menu').classList.remove('hidden'); state.status = 'MENU';
+            if (UI.mobileControls) UI.mobileControls.classList.add('hidden');
+            updateMobileUiMode();
+            window.scrollTo(0, 0);
+            if (UI.menu) UI.menu.scrollTop = 0;
             ctx.fillStyle = '#050508'; ctx.fillRect(0, 0, vw, vh); 
         });
 

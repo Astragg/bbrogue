@@ -21,10 +21,9 @@ export function createUpgradesDb(CHARACTERS) {
         { id: 'freeze_up', title: 'Cryo Rounds', rarity: 'rare', desc: 'Hits temporarily freeze and slow enemies.', color: 'text-cyan-300', apply: p => p.effects.freeze = (p.effects.freeze || 0) + 1 },
         { id: 'burn_up', title: 'Incendiary', rarity: 'common', desc: 'Hits apply stacking Burn damage.', color: 'text-orange-500', apply: p => p.effects.burn = (p.effects.burn || 0) + 1 },
         { id: 'lightning_up', title: 'Tesla Coil', rarity: 'rare', desc: 'Damage arcs to nearby enemies (Passive).', color: 'text-yellow-200', apply: p => p.effects.lightning = (p.effects.lightning || 0) + 1 },
-        { id: 'singularity', title: 'Singularity', rarity: 'epic', desc: 'Attacks can spawn a Black Hole.', color: 'text-purple-500', apply: p => p.effects.singularity = (p.effects.singularity || 0) + 1 },
+        { id: 'singularity', title: 'Singularity', rarity: 'epic', desc: '4% chance on kill to spawn a Black Hole.', color: 'text-purple-500', apply: p => p.effects.singularity = (p.effects.singularity || 0) + 1 },
 
         // Procs
-        { id: 'wisp_up', title: 'Will-o-the-Wisp', rarity: 'rare', desc: 'Enemies explode into lava pillars on death.', color: 'text-orange-300', apply: p => p.effects.wisp = (p.effects.wisp || 0) + 1 },
         { id: 'gas_up', title: 'Gasoline', rarity: 'common', desc: 'Killing an enemy ignites nearby enemies.', color: 'text-red-500', apply: p => p.effects.gasoline = (p.effects.gasoline || 0) + 1 },
 
         // Survival

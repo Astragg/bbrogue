@@ -61,6 +61,22 @@
         </div>
     </div>
 
+    <!-- Account Auth Modal -->
+    <div id="modal-auth" class="hidden absolute inset-0 z-[55] flex items-center justify-center bg-black/85 backdrop-blur-xl pointer-events-auto p-4">
+        <div class="glass-panel w-full max-w-md rounded-2xl border-white/10 p-6 md:p-8 relative">
+            <button id="btn-close-auth" class="absolute top-4 right-6 text-slate-500 hover:text-white transition-colors text-3xl font-light leading-none">&times;</button>
+            <h2 class="text-2xl font-black tracking-tight text-white mb-2">ACCOUNT ACCESS</h2>
+            <p class="text-xs text-slate-400 font-mono mb-6">Sign in to sync save data across devices.</p>
+            <div class="space-y-3">
+                <button id="btn-auth-google" class="w-full py-3 border border-sky-400/35 rounded-lg text-sky-300 font-mono text-xs tracking-widest hover:bg-sky-500/10 transition-all">
+                    CONTINUE WITH GOOGLE
+                </button>
+                <button id="btn-auth-logout" class="w-full py-3 border border-rose-400/35 rounded-lg text-rose-300 font-mono text-xs tracking-widest hover:bg-rose-500/10 transition-all">SIGN OUT</button>
+            </div>
+            <p id="auth-msg" class="mt-4 text-[11px] font-mono text-slate-400 min-h-[18px]"></p>
+        </div>
+    </div>
+
     <!-- Main Menu -->
     <div id="screen-menu" class="absolute inset-0 z-10 flex flex-col radial-bg pointer-events-auto overflow-y-auto">
         
@@ -90,10 +106,13 @@
                 <button id="btn-open-admin" class="glass-panel px-4 md:px-5 py-2 md:py-3 rounded-xl border-rose-500/30 text-rose-300 font-mono text-xs tracking-widest hover:bg-rose-500/10 transition-all">
                     <span class="flex items-center gap-2"><img src="assets/ui/fb33.png" class="ui-ico" alt="">ADMIN</span>
                 </button>
+                <button id="btn-open-auth" class="glass-panel px-4 md:px-5 py-2 md:py-3 rounded-xl border-sky-500/30 text-sky-300 font-mono text-xs tracking-widest hover:bg-sky-500/10 transition-all">
+                    <span class="flex items-center gap-2"><img src="assets/ui/fb204.png" class="ui-ico" alt="">ACCOUNT</span>
+                </button>
             </div>
         </div>
 
-        <div class="w-full flex-1 max-w-6xl mx-auto h-full p-4 md:p-8 lg:p-10 pb-20">
+        <div class="menu-shell w-full flex-1 max-w-6xl mx-auto h-full p-4 md:p-8 lg:p-10 pb-20">
             <div class="menu-wireframe glass-panel rounded-sm border-white/20">
                 <div class="menu-wireframe-title font-mono tracking-wide"><strong>BOS</strong></div>
                 <div class="menu-tabs-wire">
@@ -356,6 +375,18 @@
         <!-- Bottom-right hint strip -->
         <div class="hud-hints">
             <kbd>U</kbd> MODULES <span class="hud-hint-sep">·</span> <kbd>SPC</kbd> DASH <span class="hud-hint-sep">·</span> <kbd>R</kbd> ULT
+        </div>
+
+        <!-- Mobile touch controls -->
+        <div id="mobile-controls" class="mobile-controls hidden">
+            <div id="mobile-joystick" class="mobile-joystick">
+                <div id="mobile-joystick-stick" class="mobile-joystick-stick"></div>
+            </div>
+            <div class="mobile-action-stack">
+                <button id="btn-mobile-dash" class="mobile-action-btn" type="button">DASH</button>
+                <button id="btn-mobile-ult" class="mobile-action-btn mobile-action-btn-ult" type="button">ULT</button>
+                <button id="btn-mobile-modules" class="mobile-action-btn mobile-action-btn-mod" type="button">MOD</button>
+            </div>
         </div>
     </div>
 
