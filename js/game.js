@@ -111,6 +111,25 @@ import { createUpgradesDb } from './config/upgrades.js';
                 { title: 'Repair Loop', desc: 'Healing drone heals faster.', apply: p => { p.effects.healDroneRate = (p.effects.healDroneRate || 1) + 0.8; } }
             ]
         };
+        const CLASS_QUIRKS = {
+            ronin: { name: 'Bloodspin', desc: 'Starts with bleed edge and faster dashes for close-range aggression.', apply: p => { p.effects.bleed = (p.effects.bleed || 0) + 1; p.stats.dashCooldown *= 0.88; } },
+            lancer: { name: 'Impale Drive', desc: 'Piercing thrusts hit harder and travel faster.', apply: p => { p.stats.projectileSpeed *= 1.2; p.stats.damage *= 1.12; } },
+            bruiser: { name: 'Point-Blank Brutality', desc: 'Deals bonus damage to nearby targets.', apply: p => { p.effects.closeRangeBonus = 1; } },
+            sniper: { name: 'Cold Focus', desc: 'Higher crit reliability at long range.', apply: p => { p.stats.critChance = Math.min(1, p.stats.critChance + 0.08); p.stats.attackRange *= 1.08; } },
+            bomber: { name: 'Blast Chain', desc: 'Explosions are larger and more punishing.', apply: p => { p.stats.explodeRadius = (p.stats.explodeRadius || 0) + 45; } },
+            seeker: { name: 'Swarm Logic', desc: 'Projectiles home harder and travel farther.', apply: p => { p.stats.homing += 0.1; p.stats.attackRange *= 1.1; } },
+            paladin: { name: 'Sanctuary Core', desc: 'Converts sustain into frontline durability.', apply: p => { p.stats.regen += 3; p.stats.armor += 6; } },
+            ranger: { name: 'Suppressive Barrage', desc: 'Higher sustained fire rate while strafing.', apply: p => { p.stats.fireRate *= 1.18; p.stats.speed *= 1.06; } },
+            channeler: { name: 'Arc Conductor', desc: 'Beam tracks deeper and ramps damage faster.', apply: p => { p.stats.attackRange *= 1.12; p.effects.beamRamp = 1; } },
+            trapper: { name: 'Target Saturation', desc: 'Orbital strikes cover more area per volley.', apply: p => { p.stats.projectiles += 1; p.stats.explodeRadius = (p.stats.explodeRadius || 0) + 35; } },
+            architect: { name: 'Swarm Command', desc: 'Starts with 3 attack drones plus harvester and healer support drones.', apply: p => {} },
+            alchemist: { name: 'Catalyst Shell', desc: 'Starts with richer status stacks for proc chains.', apply: p => { p.effects.poison = (p.effects.poison || 0) + 1; p.effects.burn = (p.effects.burn || 0) + 1; } },
+            warden: { name: 'Barrier Pulse', desc: 'Pulse attacks restore shield and harden defenses.', apply: p => { p.effects.maxShield = (p.effects.maxShield || 0) + 60; p.stats.armor += 4; } },
+            gambler: { name: 'Chamber Roulette', desc: 'Color-coded chamber ring with forced reload loops.', apply: p => {} },
+            necrosmith: { name: 'Soul Forge', desc: 'Elite kills forge temporary husk minions.', apply: p => { p.effects.necroForge = 1; } },
+            voltdancer: { name: 'Kinetic Arc', desc: 'Moving and dashing chains lightning across packs.', apply: p => { p.effects.voltDash = (p.effects.voltDash || 1) + 1; p.stats.speed *= 1.08; } },
+            voidwalker: { name: 'Void Drift', desc: 'Beam pressure with mobility-biased scaling.', apply: p => { p.stats.speed *= 1.1; p.stats.damage *= 1.1; } }
+        };
         const ADMIN_KEY = 'bob123';
         const UISounds = {
             open: new Audio('assets/sfx/SFX_UI_OpenMenu.mp3'),
@@ -691,7 +710,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                 };
                 
                 if(charId === 'architect') {
-                    this.player.summons.attackDrones = 1;
+                    this.player.summons.attackDrones = 3;
                     this.player.summons.harvesterDrones = 1;
                     this.player.summons.healDrones = 1;
                 }
@@ -711,7 +730,7 @@ import { createUpgradesDb } from './config/upgrades.js';
 
                 this.enemies = []; this.projectiles = []; this.gems = []; 
                 this.particles = []; this.floatingTexts = []; this.orbitals = []; this.drones = []; this.blades = [];
-                this.hazards = []; this.blackholes = [];
+                this.hazards = []; this.blackholes = []; this.orbitalStrikes = [];
                 
                 this.spawner = { nextSpawn: 0, spawnRate: 1.0, waveMult: 1.0, bossesSpawned: 0, elitesSpawned: 0, lastAnomalyKills: 0 };
                 this.camera = { x: 0, y: 0 }; this.bossActive = null;
@@ -738,6 +757,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                 this.activeHazard = null;
                 this.signalTower = null;
                 this.necroHusks = [];
+                this.difficulty = { scalar: 1, lastKills: 0, lastCheckAt: 0 };
 
                 const startArtifact = SaveSystem.data.selectedArtifact || 'none';
                 this.player.artifactId = startArtifact;
@@ -745,6 +765,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                     ARTIFACTS[startArtifact].apply(this.player);
                 }
                 if (SKIN_PASSIVES[skin]) SKIN_PASSIVES[skin](this.player);
+                if (CLASS_QUIRKS[charId]) CLASS_QUIRKS[charId].apply(this.player);
                 if (this.contract.id === 'glass') {
                     this.player.stats.maxHp *= 0.9;
                     this.player.stats.hp = Math.min(this.player.stats.hp, this.player.stats.maxHp);
@@ -1193,7 +1214,14 @@ import { createUpgradesDb } from './config/upgrades.js';
                 if (idx < attack) role = 'attack';
                 else if (idx < attack + harvest) role = 'harvester';
                 else if (idx < attack + harvest + heal) role = 'healer';
-                state.drones.push({ x: p.x, y: p.y, targetX: p.x, targetY: p.y, lastFire: 0, cooldown: role === 'healer' ? 1.2 : 1.0, role });
+                const orbitRadius = role === 'harvester' ? 74 : (role === 'healer' ? 92 : 58);
+                state.drones.push({
+                    x: p.x, y: p.y, targetX: p.x, targetY: p.y, lastFire: 0,
+                    cooldown: role === 'healer' ? 1.2 : 1.0,
+                    role,
+                    orbitOffset: (Math.PI * 2 * idx) / Math.max(1, reqDrones),
+                    orbitRadius
+                });
             }
             if (state.drones.length > reqDrones) state.drones.length = reqDrones;
             const reqBlades = p.summons.blades || 0;
@@ -1218,9 +1246,9 @@ import { createUpgradesDb } from './config/upgrades.js';
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: shape.radius * (1 + tierIdx*0.1), sides: shape.sides, color: tier.color, type: shape.type,
-                hp: 20 * tier.hpM * state.spawner.waveMult * layerMult * (state.ascension?.hpMult || 1),
-                maxHp: 20 * tier.hpM * state.spawner.waveMult * layerMult * (state.ascension?.hpMult || 1),
-                speed: 120 * tier.spdM * MathHelper.rand(0.8, 1.2) * (state.layer >= 2 ? 1.12 : 1.0), damage: 5 * tier.dmgM * state.spawner.waveMult * layerMult * (state.ascension?.dmgMult || 1),
+                hp: 20 * tier.hpM * state.spawner.waveMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
+                maxHp: 20 * tier.hpM * state.spawner.waveMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
+                speed: 120 * tier.spdM * MathHelper.rand(0.8, 1.2) * (state.layer >= 2 ? 1.12 : 1.0) * (0.94 + (state.difficulty?.scalar || 1) * 0.1), damage: 5 * tier.dmgM * state.spawner.waveMult * layerMult * (state.ascension?.dmgMult || 1) * (state.difficulty?.scalar || 1),
                 erratic: shape.erratic, freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: false, isElite: false, isRanged, preferredRange: MathHelper.rand(220, 420), shootCd: MathHelper.rand(1.2, 2.2), shootTimer: MathHelper.rand(0.1, 1.0), vx: 0, vy: 0, timer: 0, xp: tier.xp
             });
@@ -1235,9 +1263,9 @@ import { createUpgradesDb } from './config/upgrades.js';
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: 15 * t.scale, sides: SHAPES.find(s=>s.type === t.type).sides, color: t.color,
-                hp: 150 * state.spawner.waveMult * t.hpMult * layerMult * (state.ascension?.hpMult || 1),
-                maxHp: 150 * state.spawner.waveMult * t.hpMult * layerMult * (state.ascension?.hpMult || 1),
-                speed: 100 * t.speedMult * (state.layer >= 2 ? 1.1 : 1.0), damage: 20 * state.spawner.waveMult * t.dmgMult * layerMult * (state.ascension?.dmgMult || 1),
+                hp: 150 * state.spawner.waveMult * t.hpMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
+                maxHp: 150 * state.spawner.waveMult * t.hpMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
+                speed: 100 * t.speedMult * (state.layer >= 2 ? 1.1 : 1.0) * (0.94 + (state.difficulty?.scalar || 1) * 0.1), damage: 20 * state.spawner.waveMult * t.dmgMult * layerMult * (state.ascension?.dmgMult || 1) * (state.difficulty?.scalar || 1),
                 freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: false, isElite: true, behavior: t.behavior, timer: 0, vx: 0, vy: 0
             });
@@ -1254,8 +1282,8 @@ import { createUpgradesDb } from './config/upgrades.js';
             const boss = {
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: 60, sides: t.sides, color: t.color, behavior: t.behavior,
-                hp: Math.max(t.hpMode * waveScale * 1.85, 5000 + (layer * 2200)) * (state.ascension?.hpMult || 1), maxHp: Math.max(t.hpMode * waveScale * 1.85, 5000 + (layer * 2200)) * (state.ascension?.hpMult || 1),
-                speed: 60 + layer * 3, damage: t.dmgBase * waveScale * 1.8 * (state.ascension?.dmgMult || 1),
+                hp: Math.max(t.hpMode * waveScale * 1.85, 5000 + (layer * 2200)) * (state.ascension?.hpMult || 1) * Math.max(0.9, state.difficulty?.scalar || 1), maxHp: Math.max(t.hpMode * waveScale * 1.85, 5000 + (layer * 2200)) * (state.ascension?.hpMult || 1) * Math.max(0.9, state.difficulty?.scalar || 1),
+                speed: (60 + layer * 3) * (0.96 + (state.difficulty?.scalar || 1) * 0.06), damage: t.dmgBase * waveScale * 1.8 * (state.ascension?.dmgMult || 1) * Math.max(0.9, state.difficulty?.scalar || 1),
                 freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: true, name: `LAYER ${layer}.5 - ${t.name}`,
                 state: 'chase', timer: 0, vx: 0, vy: 0, maxPhase: 2, phase: 1, spawnShield: 1.75
@@ -1324,6 +1352,7 @@ import { createUpgradesDb } from './config/upgrades.js';
             const p = state.player;
             let dmg = baseDmg * p.combo;
             if(p.stats.bossDmg && (e.isBoss || e.isElite)) dmg *= p.stats.bossDmg;
+            if(p.effects.executioner && e.maxHp > 0 && (e.hp / e.maxHp) <= 0.35) dmg *= (1 + p.effects.executioner);
             if (e.isBoss && e.spawnShield > 0) return;
             if (e.isBoss) dmg = Math.min(dmg, Math.max(120, e.maxHp * 0.035));
             
@@ -1572,15 +1601,30 @@ import { createUpgradesDb } from './config/upgrades.js';
                 }
             }
             for(let d of state.drones) {
-                d.targetX = p.x + Math.cos(state.gameTime*2 + d.lastFire)*50; d.targetY = p.y + Math.sin(state.gameTime*2 + d.lastFire)*50;
+                const orbitSpeed = d.role === 'harvester' ? 1.4 : (d.role === 'healer' ? 1.1 : 1.9);
+                d.targetX = p.x + Math.cos(state.gameTime * orbitSpeed + (d.orbitOffset || 0)) * (d.orbitRadius || 60);
+                d.targetY = p.y + Math.sin(state.gameTime * orbitSpeed + (d.orbitOffset || 0)) * (d.orbitRadius || 60);
                 d.x = MathHelper.lerp(d.x, d.targetX, 3*dtReal); d.y = MathHelper.lerp(d.y, d.targetY, 3*dtReal);
                 d.lastFire += dtReal;
                 if (d.role === 'harvester') {
+                    let nearestGem = null;
+                    let nearestDist = 200;
                     for (const g of state.gems) {
-                        if (MathHelper.dist(d, g) < 34) {
-                            const gained = g.value * (p.effects.harvestBoost || 1.2);
+                        const dg = MathHelper.dist(d, g);
+                        if (dg < nearestDist) {
+                            nearestDist = dg;
+                            nearestGem = g;
+                        }
+                    }
+                    if (nearestGem) {
+                        const ag = MathHelper.angle(d, nearestGem);
+                        const chaseSpeed = 260;
+                        d.x += Math.cos(ag) * chaseSpeed * dtReal;
+                        d.y += Math.sin(ag) * chaseSpeed * dtReal;
+                        if (nearestDist < 22) {
+                            const gained = nearestGem.value * (p.effects.harvestBoost || 1.2);
                             p.progression.xp += gained;
-                            g.value = 0;
+                            nearestGem.value = 0;
                         }
                     }
                 } else if (d.role === 'healer') {
@@ -1594,7 +1638,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                     let nearest = null, minDist = 400;
                     for (let e of state.enemies) { let dist = MathHelper.dist(d, e); if (dist < minDist) { minDist = dist; nearest = e; } }
                     if (nearest) {
-                        const dmg = p.stats.damage * 0.3 * (p.effects.attackDroneBoost || 1);
+                        const dmg = p.stats.damage * 0.36 * (p.effects.attackDroneBoost || 1);
                         createProjectile(d.x, d.y, MathHelper.angle(d, nearest), { projectileSpeed: 500, damage: dmg, attackRange: 400 }, {}, '#cbd5e1');
                         d.lastFire = 0;
                     }
@@ -1614,7 +1658,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                     const a = MathHelper.angle(h, nearest);
                     h.x += Math.cos(a) * 140 * dtReal;
                     h.y += Math.sin(a) * 140 * dtReal;
-                    if (MathHelper.dist(h, nearest) < nearest.radius + 12) applyDamage(nearest, p.stats.damage * 0.35 * (p.effects.necroHuskDmg || 1), '#a78bfa');
+                    if (MathHelper.dist(h, nearest) < nearest.radius + 12) applyDamage(nearest, p.stats.damage * 0.5 * (p.effects.necroHuskDmg || 1), '#a78bfa');
                 } else {
                     h.x = MathHelper.lerp(h.x, p.x, 1.5 * dtReal);
                     h.y = MathHelper.lerp(h.y, p.y, 1.5 * dtReal);
@@ -1689,6 +1733,20 @@ import { createUpgradesDb } from './config/upgrades.js';
                 }
             } else { state.worldEvent.active = null; state.timeScale = 1.0; }
 
+            if ((state.gameTime - state.difficulty.lastCheckAt) >= 5) {
+                const dtWindow = Math.max(1, state.gameTime - state.difficulty.lastCheckAt);
+                const killRate = (p.progression.kills - state.difficulty.lastKills) / dtWindow;
+                const targetKillRate = 0.42 + state.layer * 0.07;
+                let scalar = 0.9 + (killRate / Math.max(0.15, targetKillRate)) * 0.28;
+                const hpRatio = p.stats.hp / Math.max(1, p.stats.maxHp);
+                if (hpRatio < 0.35) scalar -= 0.14;
+                else if (hpRatio > 0.85) scalar += 0.06;
+                if (p.progression.level < state.layer * 2) scalar -= 0.08;
+                state.difficulty.scalar = Math.max(0.85, Math.min(1.18, scalar));
+                state.difficulty.lastKills = p.progression.kills;
+                state.difficulty.lastCheckAt = state.gameTime;
+            }
+
             if (state.signalTower) {
                 const t = state.signalTower;
                 t.timer -= dtReal;
@@ -1710,8 +1768,42 @@ import { createUpgradesDb } from './config/upgrades.js';
                 if (state.spawner.nextSpawn <= 0) {
                     spawnEnemy();
                     state.spawner.spawnRate = Math.max(0.08, 1.0 - (state.gameTime / 300)); 
-                    state.spawner.spawnRate = Math.max(0.04, state.spawner.spawnRate / (state.ascension?.spawnMult || 1));
+                    state.spawner.spawnRate = Math.max(0.04, state.spawner.spawnRate / ((state.ascension?.spawnMult || 1) * (state.difficulty?.scalar || 1)));
                     state.spawner.nextSpawn = state.spawner.spawnRate;
+                }
+            }
+
+            for (let i = state.orbitalStrikes.length - 1; i >= 0; i--) {
+                const s = state.orbitalStrikes[i];
+                s.timer -= dtReal;
+                if (s.timer > 0) continue;
+
+                if (s.stage === 'telegraph') {
+                    if (s.target && state.enemies.includes(s.target)) {
+                        s.x = s.target.x;
+                        s.y = s.target.y;
+                    }
+                    s.stage = 'beam';
+                    s.timer = 0.45;
+                    state.particles.push({ type: 'orbital_beam', x: s.x, y: s.y, life: 0.45, maxLife: 0.45, color: '#a3e635', radius: s.radius, startY: s.y - 360, target: s.target });
+                    continue;
+                }
+
+                if (s.stage === 'beam') {
+                    if (s.target && state.enemies.includes(s.target)) {
+                        s.x = s.target.x;
+                        s.y = s.target.y;
+                    }
+                    if (s.target && state.enemies.includes(s.target)) {
+                        applyDamage(s.target, s.damage * 0.72, '#bef264');
+                        if (s.effects.bleed) { s.target.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                        if (s.effects.poison) { s.target.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
+                        if (s.effects.freeze) { s.target.freezeTimer = 2.0; p.runStats.statusEffectsApplied++; }
+                        if (s.effects.burn) { s.target.burnTimer = 3.0; s.target.burnStacks = (s.target.burnStacks || 0) + s.effects.burn; p.runStats.statusEffectsApplied++; }
+                    }
+                    state.particles.push({ x: s.x, y: s.y, vx: 0, vy: 0, life: 0.32, maxLife: 0.32, color: 'rgba(163, 230, 53, 0.72)', size: s.radius * 1.1, isPulse: true });
+                    explosion(s.x, s.y, s.radius, s.damage * 0.36, 'rgba(163, 230, 53, 0.45)');
+                    state.orbitalStrikes.splice(i, 1);
                 }
             }
 
@@ -1725,7 +1817,8 @@ import { createUpgradesDb } from './config/upgrades.js';
                 }
                 if (nearest) {
                     p.beamTarget = nearest;
-                    applyDamage(nearest, p.stats.damage * dt, p.color);
+                    const beamMult = p.effects.beamRamp ? (1.0 + Math.min(0.6, (1 - (minDist / Math.max(1, p.stats.attackRange))) * 0.6)) : 1.0;
+                    applyDamage(nearest, p.stats.damage * dt * beamMult, p.color);
                     if(p.stats.lifesteal > 0 && seededRandom()<0.1) {
                         let heal = p.stats.damage * dt * p.stats.lifesteal;
                         p.stats.hp = Math.min(p.stats.maxHp, p.stats.hp + heal);
@@ -1761,19 +1854,22 @@ import { createUpgradesDb } from './config/upgrades.js';
             else if (p.stats.weaponType === 'orbital') {
                 if (now - p.lastAttackTime > (1 / p.stats.fireRate)) {
                     let targets = [];
-                    for (let e of state.enemies) if (MathHelper.dist(p, e) <= p.stats.attackRange) targets.push(e);
+                    const strikeRange = Math.min(360, p.stats.attackRange);
+                    for (let e of state.enemies) if (MathHelper.dist(p, e) <= strikeRange) targets.push(e);
                     targets.sort(() => 0.5 - seededRandom());
-                    let count = Math.min(p.stats.projectiles, targets.length);
+                    let count = Math.min(Math.max(1, p.stats.projectiles), 4, targets.length);
                     
                     if (targets.length > 0) {
-                        for(let i=0; i < p.stats.projectiles; i++) {
+                        for(let i=0; i < count; i++) {
                             let t = targets[i % targets.length];
-                            state.particles.push({ type: 'vertical_beam', x: t.x, y: t.y, life: 0.3, maxLife: 0.3, color: '#a3e635', radius: p.stats.explodeRadius || 80 });
-                            explosion(t.x, t.y, p.stats.explodeRadius || 80, p.stats.damage, 'rgba(163, 230, 53, 0.4)');
-                            if (p.effects.bleed) { t.bleedTimer = 4.0; p.runStats.statusEffectsApplied++; }
-                            if (p.effects.poison) { t.poisonTimer = 4.0; p.runStats.statusEffectsApplied++; }
-                            if (p.effects.freeze) { t.freezeTimer = 2.0; p.runStats.statusEffectsApplied++; }
-                            if (p.effects.burn) { t.burnTimer = 3.0; t.burnStacks = (t.burnStacks||0) + p.effects.burn; p.runStats.statusEffectsApplied++; }
+                            const strikeRadius = Math.min(150, p.stats.explodeRadius || 80);
+                            const delay = 0.32;
+                            state.particles.push({ type: 'orbital_marker', x: t.x, y: t.y, life: delay, maxLife: delay, color: '#a3e635', radius: strikeRadius, target: t });
+                            state.orbitalStrikes.push({
+                                x: t.x, y: t.y, radius: strikeRadius, timer: delay, stage: 'telegraph',
+                                damage: p.stats.damage, target: t,
+                                effects: { bleed: p.effects.bleed, poison: p.effects.poison, freeze: p.effects.freeze, burn: p.effects.burn }
+                            });
                         }
                         p.lastAttackTime = now;
                     }
@@ -1834,14 +1930,15 @@ import { createUpgradesDb } from './config/upgrades.js';
                             for(let i = 0; i < count; i++) {
                                 let offset = count > 1 ? (-spread/2 + (spread / (count - 1)) * i) : 0;
                                 offset += MathHelper.rand(-0.05, 0.05); 
-                                const shotStats = { ...p.stats, damage: p.stats.damage * dmgMult };
+                                const proximityMult = p.effects.closeRangeBonus ? (MathHelper.dist(p, nearest) < 220 ? 1.35 : 1.0) : 1.0;
+                                const shotStats = { ...p.stats, damage: p.stats.damage * dmgMult * proximityMult };
                                 createProjectile(p.x, p.y, angleToTarget + offset, shotStats, p.effects, p.color);
                             }
                             if (p.effects.voltDash && (keys.w || keys.a || keys.s || keys.d || keys.arrowup || keys.arrowleft || keys.arrowdown || keys.arrowright)) {
                                 const chainTargets = 2 + (p.effects.voltChainBonus || 0);
                                 const arcing = state.enemies.filter(e => MathHelper.dist(p, e) < 250).slice(0, chainTargets);
                                 for (const e of arcing) {
-                                    applyDamage(e, p.stats.damage * 0.2 * p.effects.voltDash, '#fef08a');
+                                    applyDamage(e, p.stats.damage * 0.14 * p.effects.voltDash, '#fef08a');
                                     state.particles.push({ x: p.x, y: p.y, targetX: e.x, targetY: e.y, life: 0.16, color: '#fde047', isLine: true });
                                 }
                             }
@@ -1971,7 +2068,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                 }
                 if (e.poisonTimer > 0) { 
                     let poisonDmg = (e.maxHp * 0.02 * (p.effects.poison||1)) * dt;
-                    if (p.effects.toxicBlood && e.bleedTimer > 0) poisonDmg *= 2; 
+                    if (p.effects.toxicBlood && e.bleedTimer > 0) poisonDmg *= 1.6; 
                     if (p.effects.necrotic && e.hp - poisonDmg <= 0) explosion(e.x, e.y, 100, p.stats.damage * 2, 'rgba(34, 197, 94, 0.4)');
                     e.hp -= poisonDmg; 
                     p.runStats.damageDealt += poisonDmg;
@@ -2016,7 +2113,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                         if(e.behavior === 'split') { for(let s=0; s<3; s++) state.enemies.push({...e, hp: e.maxHp*0.3, radius: e.radius*0.5, isElite: false, behavior: 'none'}); }
                         for(let k=0; k<20; k++) state.gems.push({ x: e.x + MathHelper.rand(-30,30), y: e.y + MathHelper.rand(-30,30), value: 20 });
                         if (p.effects.necroForge) {
-                            const huskLife = 18 * (p.effects.necroHuskLife || 1);
+                            const huskLife = 24 * (p.effects.necroHuskLife || 1);
                             state.necroHusks.push({ x: e.x, y: e.y, life: huskLife });
                             if (p.effects.doubleHusk) state.necroHusks.push({ x: e.x + MathHelper.rand(-14, 14), y: e.y + MathHelper.rand(-14, 14), life: huskLife * 0.9 });
                         }
@@ -2115,7 +2212,11 @@ import { createUpgradesDb } from './config/upgrades.js';
 
             state.particles.forEach(pt => { 
                 if(pt.playerAttached) { pt.x = p.x; pt.y = p.y; }
-                else if(!pt.isPulse && !pt.isLine && pt.type !== 'spin') { pt.x+=pt.vx*dtReal; pt.y+=pt.vy*dtReal; } 
+                else if ((pt.type === 'orbital_marker' || pt.type === 'orbital_beam') && pt.target && state.enemies.includes(pt.target)) {
+                    pt.x = pt.target.x;
+                    pt.y = pt.target.y;
+                }
+                else if(!pt.isPulse && !pt.isLine && pt.type !== 'spin' && pt.type !== 'vertical_beam' && pt.type !== 'orbital_beam' && pt.type !== 'orbital_marker') { pt.x+=pt.vx*dtReal; pt.y+=pt.vy*dtReal; } 
                 pt.life-=dtReal; 
             });
             state.particles = state.particles.filter(pt => pt.life > 0);
@@ -2290,9 +2391,77 @@ import { createUpgradesDb } from './config/upgrades.js';
 
             for(let d of state.drones) {
                 const droneColor = d.role === 'harvester' ? '#facc15' : (d.role === 'healer' ? '#34d399' : '#cbd5e1');
-                ctx.fillStyle = p.skin === 'blueprint' ? '#fff' : droneColor;
-                ctx.beginPath(); MathHelper.drawPoly(ctx, d.x, d.y, 6, 3, state.gameTime*2);
-                p.skin === 'wireframe' ? ctx.stroke() : ctx.fill();
+                const bodyColor = p.skin === 'blueprint' ? '#fff' : droneColor;
+                const rot = state.gameTime * 1.8 + (d.role === 'healer' ? 0.6 : (d.role === 'harvester' ? 1.2 : 0));
+                ctx.save();
+                ctx.translate(d.x, d.y);
+                ctx.rotate(rot);
+
+                // Outer glow shell
+                ctx.fillStyle = d.role === 'healer'
+                    ? 'rgba(52, 211, 153, 0.2)'
+                    : d.role === 'harvester'
+                        ? 'rgba(250, 204, 21, 0.2)'
+                        : 'rgba(203, 213, 225, 0.2)';
+                ctx.beginPath();
+                ctx.arc(0, 0, 10, 0, Math.PI * 2);
+                ctx.fill();
+
+                // Role chassis "model"
+                if (d.role === 'attack') {
+                    // Arrowhead gun drone
+                    ctx.fillStyle = bodyColor;
+                    ctx.beginPath();
+                    ctx.moveTo(9, 0);
+                    ctx.lineTo(-5, -6);
+                    ctx.lineTo(-2, 0);
+                    ctx.lineTo(-5, 6);
+                    ctx.closePath();
+                    p.skin === 'wireframe' ? ctx.stroke() : ctx.fill();
+
+                    ctx.fillStyle = '#60a5fa';
+                    ctx.beginPath();
+                    ctx.arc(2, 0, 2.2, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (d.role === 'harvester') {
+                    // Diamond harvester with pickup prongs
+                    ctx.fillStyle = bodyColor;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -8);
+                    ctx.lineTo(8, 0);
+                    ctx.lineTo(0, 8);
+                    ctx.lineTo(-8, 0);
+                    ctx.closePath();
+                    p.skin === 'wireframe' ? ctx.stroke() : ctx.fill();
+
+                    ctx.strokeStyle = '#fde047';
+                    ctx.lineWidth = 1.4;
+                    ctx.beginPath();
+                    ctx.moveTo(10, 0); ctx.lineTo(13, 0);
+                    ctx.moveTo(-10, 0); ctx.lineTo(-13, 0);
+                    ctx.stroke();
+                } else {
+                    // Healer ring drone
+                    ctx.strokeStyle = bodyColor;
+                    ctx.lineWidth = 2.2;
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 7, 0, Math.PI * 2);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#86efac';
+                    ctx.beginPath();
+                    ctx.arc(0, 0, 2.5, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.strokeStyle = 'rgba(134, 239, 172, 0.8)';
+                    ctx.lineWidth = 1;
+                    ctx.beginPath();
+                    ctx.moveTo(-3, 0); ctx.lineTo(3, 0);
+                    ctx.moveTo(0, -3); ctx.lineTo(0, 3);
+                    ctx.stroke();
+                }
+
+                ctx.restore();
             }
             for (const h of state.necroHusks || []) {
                 ctx.fillStyle = '#a78bfa';
@@ -2334,6 +2503,54 @@ import { createUpgradesDb } from './config/upgrades.js';
                     ctx.fillRect(pt.x - pt.radius, pt.y - 2000, pt.radius * 2, 4000);
                     ctx.fillStyle = '#fff'; ctx.globalAlpha = progress;
                     ctx.fillRect(pt.x - pt.radius*0.2, pt.y - 2000, pt.radius * 0.4 * progress, 4000);
+                }
+                else if (pt.type === 'orbital_beam') {
+                    const progress = pt.life / pt.maxLife;
+                    const beamTop = Math.max(pt.y - 420, pt.startY ?? (pt.y - 360));
+                    const beamBottom = pt.y + 14;
+                    const headY = beamTop + (1 - progress) * (beamBottom - beamTop);
+
+                    ctx.globalAlpha = 0.28 + (progress * 0.42);
+                    ctx.strokeStyle = '#84cc16';
+                    ctx.lineWidth = Math.max(7, Math.min(16, pt.radius * 0.16));
+                    ctx.beginPath();
+                    ctx.moveTo(pt.x, beamTop);
+                    ctx.lineTo(pt.x, beamBottom);
+                    ctx.stroke();
+
+                    ctx.globalAlpha = 0.42 + (progress * 0.35);
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = Math.max(2, Math.min(6, pt.radius * 0.06));
+                    ctx.beginPath();
+                    ctx.moveTo(pt.x, beamTop);
+                    ctx.lineTo(pt.x, beamBottom);
+                    ctx.stroke();
+
+                    // Descending strike head for stronger readability.
+                    ctx.globalAlpha = 0.72;
+                    ctx.fillStyle = '#ecfccb';
+                    ctx.beginPath();
+                    ctx.arc(pt.x, headY, Math.max(4, Math.min(8, pt.radius * 0.06)), 0, Math.PI * 2);
+                    ctx.fill();
+
+                    // Small impact glow, local only.
+                    ctx.globalAlpha = 0.24;
+                    ctx.fillStyle = '#a3e635';
+                    ctx.beginPath();
+                    ctx.arc(pt.x, pt.y, Math.max(20, Math.min(52, pt.radius * 0.42)), 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                else if (pt.type === 'orbital_marker') {
+                    const progress = pt.life / pt.maxLife;
+                    ctx.globalAlpha = 0.35 + (1 - progress) * 0.45;
+                    ctx.strokeStyle = '#bef264';
+                    ctx.lineWidth = 2;
+                    ctx.arc(pt.x, pt.y, pt.radius * (0.75 + (1 - progress) * 0.25), 0, Math.PI * 2);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(pt.x - 10, pt.y); ctx.lineTo(pt.x + 10, pt.y);
+                    ctx.moveTo(pt.x, pt.y - 10); ctx.lineTo(pt.x, pt.y + 10);
+                    ctx.stroke();
                 }
                 else if(pt.isLine) { ctx.lineWidth = 1; ctx.moveTo(pt.x, pt.y); ctx.lineTo(pt.targetX, pt.targetY); ctx.stroke(); }
                 else if(pt.isPulse) { ctx.lineWidth = 2; let progress = 1 - (pt.life / (pt.maxLife || 0.3)); let r = Math.max(0.1, pt.size * progress); ctx.arc(pt.x, pt.y, r, 0, Math.PI*2); ctx.stroke(); } 
@@ -2459,6 +2676,7 @@ import { createUpgradesDb } from './config/upgrades.js';
 
             state.reset(charId, skinId, seed, { ascensionId, contractId });
             state.status = 'PLAYING';
+            syncSummons();
             playUISound('confirm');
             clearInputs();
             document.getElementById('screen-menu').classList.add('hidden'); document.getElementById('screen-gameover').classList.add('hidden'); 
@@ -2516,6 +2734,14 @@ import { createUpgradesDb } from './config/upgrades.js';
         }
 
         // Init Bindings
+        function updateClassQuirkPanel(charId) {
+            const quirk = CLASS_QUIRKS[charId] || { name: 'Core Profile', desc: 'No special quirk configured.' };
+            const titleEl = document.getElementById('class-quirk-name');
+            const descEl = document.getElementById('class-quirk-desc');
+            if (titleEl) titleEl.innerText = `${(charId || 'class').toUpperCase()} - ${quirk.name}`;
+            if (descEl) descEl.innerText = quirk.desc;
+        }
+
         function setMenuTab(tabName) {
             document.querySelectorAll('.menu-tab-btn').forEach(btn => {
                 btn.classList.toggle('active', btn.getAttribute('data-tab') === tabName);
@@ -2530,6 +2756,7 @@ import { createUpgradesDb } from './config/upgrades.js';
         setMenuTab('solo');
 
         document.querySelectorAll('.char-card').forEach(card => { 
+            card.addEventListener('mouseenter', () => updateClassQuirkPanel(card.getAttribute('data-char')));
             card.addEventListener('click', () => { 
                 const id = card.getAttribute('data-char'); const cost = parseInt(card.getAttribute('data-cost'));
                 if (SaveSystem.data.unlockedChars.includes(id)) {
@@ -2539,8 +2766,10 @@ import { createUpgradesDb } from './config/upgrades.js';
                     document.querySelectorAll('.char-card').forEach(c => { if(!c.classList.contains('locked-item')) c.classList.remove('selected')}); 
                     card.classList.add('selected'); 
                 } else { card.classList.add('shake'); setTimeout(() => card.classList.remove('shake'), 300); }
+                updateClassQuirkPanel(id);
             }); 
         });
+        updateClassQuirkPanel(document.querySelector('.char-card.selected')?.getAttribute('data-char') || 'ronin');
 
         document.querySelectorAll('.skin-btn').forEach(btn => { 
             btn.addEventListener('click', () => { 
