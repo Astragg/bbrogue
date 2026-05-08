@@ -169,6 +169,9 @@
                     <div class="text-[9px] font-mono uppercase tracking-widest text-slate-400">Class Quirk</div>
                     <div id="class-quirk-name" class="text-xs md:text-sm font-mono text-sky-300 mt-1">Ronin - Bloodspin</div>
                     <div id="class-quirk-desc" class="text-[10px] md:text-xs font-mono text-slate-400 mt-1">Starts with bleed edge and faster dash cadence for aggressive melee loops.</div>
+                    <div class="text-[9px] font-mono uppercase tracking-widest text-fuchsia-300 mt-2">Ultimate</div>
+                    <div id="class-ult-name" class="text-xs md:text-sm font-mono text-fuchsia-300 mt-1">Crimson Cyclone</div>
+                    <div id="class-ult-desc" class="text-[10px] md:text-xs font-mono text-slate-400 mt-1">Massive spin range and double damage for a short burst window.</div>
                 </div>
 
                 <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 md:gap-3 mb-8 md:mb-10 shrink-0" id="class-grid">
@@ -253,7 +256,7 @@
                     </div>
                     <div class="char-card glass-panel rounded-xl p-3 md:p-4 cursor-pointer locked-item" data-char="voltdancer" data-cost="950">
                         <h3 class="text-base md:text-lg font-bold text-yellow-200 mb-1">VOLT DANCER</h3>
-                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Speedster chaining lightning while moving.</p>
+                        <p class="text-slate-400 text-[9px] md:text-[10px] leading-tight h-8 font-mono">Dash-strike speedster: ramming chains lightning to 3 nearby foes.</p>
                         <div class="locked-overlay flex items-center justify-center pt-2"><span class="font-mono font-bold text-sky-300 text-[10px] md:text-xs">950 Shards</span></div>
                     </div>
                 </div>
@@ -277,57 +280,82 @@
     </div>
 
     <!-- HUD -->
-    <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden flex-col justify-between p-4 md:p-10">
-        <div class="flex justify-between items-start w-full relative">
-            
-            <div id="boss-hp-container" class="absolute top-12 md:top-0 left-1/2 transform -translate-x-1/2 w-3/4 max-w-lg hidden flex-col items-center transition-all">
-                <span class="font-mono font-bold text-[10px] md:text-xs text-red-500 mb-1 md:mb-2 tracking-[0.2em]" id="boss-name">ANOMALY</span>
-                <div class="w-full h-1.5 md:h-2 bg-black/50 backdrop-blur-md rounded-full overflow-hidden border border-red-900/30 shadow-[0_0_15px_rgba(220,38,38,0.5)]">
-                    <div id="boss-hp-fill" class="h-full bg-red-500 w-full transition-all duration-100"></div>
-                </div>
-            </div>
+    <div id="screen-hud" class="absolute inset-0 z-10 pointer-events-none hidden">
 
-            <div class="hud-panel hud-panel-left flex flex-col gap-1.5 md:gap-2.5">
-                <div class="flex items-center gap-2 md:gap-4">
-                    <span class="font-mono font-bold text-xs md:text-sm text-sky-400 w-14 flex items-center gap-1" id="hud-level"><img src="assets/ui/fb90.png" class="ui-ico-sm" alt="">LVL 1</span>
-                    <div class="flex-1 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
-                        <div id="hud-xp-fill" class="h-full bg-sky-400 w-0 transition-all duration-300 shadow-[0_0_10px_rgba(56,189,248,0.5)]"></div>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 md:gap-4">
-                    <span class="font-mono font-bold text-[9px] md:text-[11px] text-emerald-400 w-14 text-right pr-2 flex items-center justify-end gap-1"><img src="assets/ui/fb188.png" class="ui-ico-sm" alt="">HP</span>
-                    <div class="flex-1 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
-                        <div id="hud-hp-fill" class="h-full bg-emerald-400 w-full transition-all duration-300"></div>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 md:gap-4 hidden" id="hud-shield-container">
-                    <span class="font-mono font-bold text-[9px] md:text-[11px] text-blue-400 w-14 text-right pr-2 flex items-center justify-end gap-1"><img src="assets/ui/fb260.png" class="ui-ico-sm" alt="">SHIELD</span>
-                    <div class="flex-1 h-1.5 md:h-2 bg-white/10 rounded-full overflow-hidden relative shadow-inner">
-                        <div id="hud-shield-fill" class="h-full bg-blue-400 w-0 transition-all duration-300"></div>
-                    </div>
-                </div>
-                <div class="flex items-center gap-2 md:gap-4" id="hud-dash-container">
-                    <span class="font-mono font-bold text-[9px] md:text-[11px] text-slate-400 w-14 text-right pr-2 flex items-center justify-end gap-1"><img src="assets/ui/fb311.png" class="ui-ico-sm" alt="">DASH</span>
-                    <div class="flex-1 h-1 bg-white/10 rounded-full overflow-hidden relative">
-                        <div id="hud-dash-fill" class="h-full bg-slate-300 w-full transition-all duration-100"></div>
-                    </div>
-                </div>
-                <div class="text-[8px] md:text-[9px] font-mono text-slate-500 mt-0.5 md:mt-1 flex flex-col items-start gap-0.5">
-                    <div class="flex items-center gap-1 md:gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">U</kbd> Modules</div>
-                    <div class="flex items-center gap-1 md:gap-2"><kbd class="bg-white/10 px-1.5 py-0.5 rounded text-slate-300 border border-white/20">SPACE</kbd> Dash</div>
+        <!-- Top center: boss bar -->
+        <div id="boss-hp-container" class="hud-boss-anchor hidden">
+            <div class="boss-bar-frame">
+                <span id="boss-name" class="boss-bar-name">ANOMALY</span>
+                <div class="boss-bar-track">
+                    <div id="boss-hp-fill" class="boss-bar-fill"></div>
                 </div>
             </div>
-            
-            <div class="hud-panel hud-panel-right flex flex-col items-end gap-1">
-                <div class="font-mono font-light text-2xl md:text-3xl text-white tracking-tighter" id="hud-time">00:00</div>
-                <div class="font-mono text-[9px] md:text-[11px] text-indigo-300 uppercase tracking-widest" id="hud-layer">LAYER 1</div>
-                <div class="font-mono text-[9px] md:text-[11px] text-slate-400 uppercase tracking-widest mt-1" id="hud-kills">0 KILLS</div>
-                <div class="font-mono text-[9px] md:text-[11px] text-amber-300 uppercase tracking-widest max-w-[210px] text-right" id="hud-objective">OBJECTIVE: STANDBY</div>
-                <div class="font-mono font-bold text-[10px] md:text-xs text-fuchsia-400 mt-2 px-2 md:px-3 py-1 bg-fuchsia-500/10 rounded-full border border-fuchsia-500/20 hidden" id="hud-combo">COMBO x1.0</div>
-                
-                <!-- Party Tracker HUD -->
-                <div id="hud-party-list" class="mt-2 md:mt-4 flex flex-col items-end gap-1 md:gap-2 w-full pointer-events-auto"></div>
+        </div>
+
+        <!-- Top-left: time / layer / kills -->
+        <div class="hud-corner hud-tl">
+            <div class="hud-time-block">
+                <span id="hud-time" class="hud-time">00:00</span>
+                <div class="hud-meta">
+                    <span id="hud-layer" class="hud-meta-pill">LAYER 1</span>
+                    <span id="hud-kills" class="hud-meta-pill hud-meta-muted">0 KILLS</span>
+                </div>
             </div>
+        </div>
+
+        <!-- Top-right: objective + party -->
+        <div class="hud-corner hud-tr">
+            <div class="objective-card">
+                <div class="objective-card-label"><span class="objective-dot"></span>OBJECTIVE</div>
+                <div id="hud-objective" class="objective-card-text">STANDBY</div>
+            </div>
+            <div id="hud-party-list" class="hud-party-list pointer-events-auto"></div>
+        </div>
+
+        <!-- Bottom-center: command bar (HP/Shield/Dash/Level) -->
+        <div class="hud-command-bar">
+            <div class="hud-cmd-row hud-cmd-row-xp">
+                <div class="hud-cmd-level">
+                    <img src="assets/ui/fb90.png" class="ui-ico-sm" alt="">
+                    <span id="hud-level" class="hud-cmd-text">LVL 1</span>
+                </div>
+                <div class="hud-cmd-bar hud-cmd-bar-xp">
+                    <div id="hud-xp-fill" class="hud-cmd-fill bar-xp"></div>
+                </div>
+            </div>
+            <div class="hud-cmd-row">
+                <span class="hud-cmd-tag bar-tag-hp">HP</span>
+                <div class="hud-cmd-bar hud-cmd-bar-hp">
+                    <div id="hud-hp-fill" class="hud-cmd-fill bar-hp"></div>
+                </div>
+            </div>
+            <div id="hud-shield-container" class="hud-cmd-row hidden">
+                <span class="hud-cmd-tag bar-tag-shield">SHD</span>
+                <div class="hud-cmd-bar">
+                    <div id="hud-shield-fill" class="hud-cmd-fill bar-shield"></div>
+                </div>
+            </div>
+            <div id="hud-dash-container" class="hud-cmd-row">
+                <span class="hud-cmd-tag bar-tag-dash">DSH</span>
+                <div class="hud-cmd-bar hud-cmd-bar-dash">
+                    <div id="hud-dash-fill" class="hud-cmd-fill bar-dash"></div>
+                </div>
+            </div>
+            <div id="hud-ult-container" class="hud-cmd-row">
+                <span class="hud-cmd-tag bar-tag-ult">ULT</span>
+                <div class="hud-cmd-bar hud-cmd-bar-dash">
+                    <div id="hud-ult-fill" class="hud-cmd-fill bar-ult"></div>
+                </div>
+                <span id="hud-ult-name" class="hud-ult-name">OVERCLOCK</span>
+            </div>
+        </div>
+
+        <!-- Combo readout (floats above command bar) -->
+        <div id="hud-combo" class="hud-combo hidden">COMBO x1.0</div>
+
+        <!-- Bottom-right hint strip -->
+        <div class="hud-hints">
+            <kbd>U</kbd> MODULES <span class="hud-hint-sep">·</span> <kbd>SPC</kbd> DASH <span class="hud-hint-sep">·</span> <kbd>R</kbd> ULT
         </div>
     </div>
 
