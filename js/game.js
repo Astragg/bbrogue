@@ -1,5 +1,5 @@
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getAuth, onAuthStateChanged, GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
         import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 import { CHARACTERS } from './config/characters.js';
@@ -186,7 +186,7 @@ import { createUpgradesDb } from './config/upgrades.js';
         }
 
         function xpNeededForLevel(level) {
-            return Math.floor(50 * Math.pow(1.3, Math.max(0, level - 1)));
+            return Math.floor(50 * Math.pow(1.24, Math.max(0, level - 1)));
         }
 
         function progressionToPoints(prog) {
@@ -266,7 +266,10 @@ import { createUpgradesDb } from './config/upgrades.js';
                     showSysMsg("SIGNED IN WITH GOOGLE", "text-sky-300", "bg-sky-500/10 border-sky-500/20");
                 } catch (e) {
                     if (e?.code === 'auth/popup-closed-by-user') throw new Error('Google sign-in popup was closed.');
-                    if (e?.code === 'auth/popup-blocked') throw new Error('Popup blocked. Allow popups and retry.');
+                    if (e?.code === 'auth/popup-blocked' || e?.code === 'auth/cancelled-popup-request' || e?.code === 'auth/operation-not-supported-in-this-environment') {
+                        await signInWithRedirect(auth, provider);
+                        return;
+                    }
                     throw e;
                 }
             },
@@ -1545,6 +1548,10 @@ import { createUpgradesDb } from './config/upgrades.js';
                 if (state.layer >= 5) state.visualTheme = 'abyss';
                 state.player.stats.maxHp += 25;
                 state.player.stats.hp = Math.min(state.player.stats.maxHp, state.player.stats.hp + 25);
+                // Layer transition gives a small offensive bump so late-game pacing stays killable.
+                state.player.stats.damage *= 1.06;
+                state.player.stats.fireRate *= 1.04;
+                state.player.stats.projectileSpeed *= 1.03;
                 showSysMsg(`LAYER ${state.layer} ONLINE`, 'text-indigo-300', 'bg-indigo-500/10 border-indigo-500/20');
 
                 const eventRoll = seededRandom();
@@ -1660,7 +1667,7 @@ import { createUpgradesDb } from './config/upgrades.js';
         function spawnEnemy(isSwarm = false) {
             const angle = seededRandom() * Math.PI * 2;
             const dist = isSwarm ? MathHelper.rand(400, 800) : Math.max(vw, vh) * 0.6; 
-            state.spawner.waveMult = 1.0 + (state.gameTime / 60) * 0.5; 
+            state.spawner.waveMult = Math.min(4.2, 1.0 + (state.gameTime / 60) * 0.28); 
             
             let maxTier = Math.min(TIERS.length - 1, Math.floor(state.gameTime / 50)); 
             let tierIdx = isSwarm ? Math.floor(seededRandom() * Math.min(2, maxTier + 1)) : Math.max(0, Math.floor(seededRandom() * (maxTier + 1)));
@@ -1668,16 +1675,18 @@ import { createUpgradesDb } from './config/upgrades.js';
             
             const tier = TIERS[tierIdx];
             const shape = SHAPES[Math.floor(seededRandom() * SHAPES.length)];
-            const layerMult = 1.0 + (state.layer - 1) * 0.22;
+            const layerMult = 1.0 + (state.layer - 1) * 0.16;
             const rangedChance = Math.min(0.5, 0.1 + state.layer * 0.05);
             const isRanged = seededRandom() < rangedChance;
+            const enemySpeedRaw = 120 * tier.spdM * MathHelper.rand(0.8, 1.2) * (state.layer >= 2 ? 1.07 : 1.0) * (0.94 + (state.difficulty?.scalar || 1) * 0.1);
+            const enemySpeedCap = Math.max(180, state.player.stats.speed * (isRanged ? 0.9 : 0.98));
             
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: shape.radius * (1 + tierIdx*0.1), sides: shape.sides, color: tier.color, type: shape.type,
                 hp: 20 * tier.hpM * state.spawner.waveMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
                 maxHp: 20 * tier.hpM * state.spawner.waveMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
-                speed: 120 * tier.spdM * MathHelper.rand(0.8, 1.2) * (state.layer >= 2 ? 1.12 : 1.0) * (0.94 + (state.difficulty?.scalar || 1) * 0.1), damage: 5 * tier.dmgM * state.spawner.waveMult * layerMult * (state.ascension?.dmgMult || 1) * (state.difficulty?.scalar || 1),
+                speed: Math.min(enemySpeedRaw, enemySpeedCap), damage: 5 * tier.dmgM * state.spawner.waveMult * layerMult * (state.ascension?.dmgMult || 1) * (state.difficulty?.scalar || 1),
                 erratic: shape.erratic, freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: false, isElite: false, isRanged, preferredRange: MathHelper.rand(220, 420), shootCd: MathHelper.rand(1.2, 2.2), shootTimer: MathHelper.rand(0.1, 1.0), vx: 0, vy: 0, timer: 0, xp: tier.xp
             });
@@ -1687,14 +1696,16 @@ import { createUpgradesDb } from './config/upgrades.js';
             const angle = seededRandom() * Math.PI * 2;
             const dist = Math.max(vw, vh) * 0.5;
             const t = ELITE_TYPES[Math.floor(seededRandom() * ELITE_TYPES.length)];
-            const layerMult = state.layer >= 2 ? 1.5 : 1.0;
+            const layerMult = state.layer >= 2 ? 1.32 : 1.0;
+            const eliteSpeedRaw = 100 * t.speedMult * (state.layer >= 2 ? 1.07 : 1.0) * (0.94 + (state.difficulty?.scalar || 1) * 0.1);
+            const eliteSpeedCap = Math.max(165, state.player.stats.speed * 0.95);
             
             state.enemies.push({
                 x: state.player.x + Math.cos(angle) * dist, y: state.player.y + Math.sin(angle) * dist,
                 radius: 15 * t.scale, sides: SHAPES.find(s=>s.type === t.type).sides, color: t.color,
                 hp: 150 * state.spawner.waveMult * t.hpMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
                 maxHp: 150 * state.spawner.waveMult * t.hpMult * layerMult * (state.ascension?.hpMult || 1) * (state.difficulty?.scalar || 1),
-                speed: 100 * t.speedMult * (state.layer >= 2 ? 1.1 : 1.0) * (0.94 + (state.difficulty?.scalar || 1) * 0.1), damage: 20 * state.spawner.waveMult * t.dmgMult * layerMult * (state.ascension?.dmgMult || 1) * (state.difficulty?.scalar || 1),
+                speed: Math.min(eliteSpeedRaw, eliteSpeedCap), damage: 20 * state.spawner.waveMult * t.dmgMult * layerMult * (state.ascension?.dmgMult || 1) * (state.difficulty?.scalar || 1),
                 freezeTimer: 0, bleedTimer: 0, burnTimer: 0, burnStacks: 0, poisonTimer: 0,
                 isBoss: false, isElite: true, behavior: t.behavior, timer: 0, vx: 0, vy: 0
             });
@@ -2209,13 +2220,13 @@ import { createUpgradesDb } from './config/upgrades.js';
             if ((state.gameTime - state.difficulty.lastCheckAt) >= 5) {
                 const dtWindow = Math.max(1, state.gameTime - state.difficulty.lastCheckAt);
                 const killRate = (p.progression.kills - state.difficulty.lastKills) / dtWindow;
-                const targetKillRate = 0.42 + state.layer * 0.07;
-                let scalar = 0.9 + (killRate / Math.max(0.15, targetKillRate)) * 0.28;
+                const targetKillRate = 0.38 + state.layer * 0.045;
+                let scalar = 0.9 + (killRate / Math.max(0.15, targetKillRate)) * 0.24;
                 const hpRatio = p.stats.hp / Math.max(1, p.stats.maxHp);
                 if (hpRatio < 0.35) scalar -= 0.14;
                 else if (hpRatio > 0.85) scalar += 0.06;
                 if (p.progression.level < state.layer * 2) scalar -= 0.08;
-                state.difficulty.scalar = Math.max(0.85, Math.min(1.18, scalar));
+                state.difficulty.scalar = Math.max(0.82, Math.min(1.1, scalar));
                 state.difficulty.lastKills = p.progression.kills;
                 state.difficulty.lastCheckAt = state.gameTime;
             }
@@ -2676,7 +2687,7 @@ import { createUpgradesDb } from './config/upgrades.js';
                         }
                         if (p.progression.xp >= p.progression.nextXp) {
                             p.progression.level++; p.progression.xp -= p.progression.nextXp;
-                            p.progression.nextXp = Math.floor(50 * Math.pow(1.3, p.progression.level - 1));
+                            p.progression.nextXp = xpNeededForLevel(p.progression.level);
                             triggerLevelUp();
                         }
                     }
